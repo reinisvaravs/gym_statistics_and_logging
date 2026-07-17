@@ -75,16 +75,27 @@ dashboard without the bot. To exercise the bot locally, expose the port with a t
    service and a Postgres database.
 3. In the service's **Environment** tab, set the secrets marked `sync: false`
    (OpenAI key, bot token, webhook secret, allowed user id, auth username + hash).
-4. Deploy. On boot the app creates its tables, seeds from `gym.json` if the DB is empty,
-   and registers the Telegram webhook automatically.
+4. Deploy. On boot the app creates its tables and registers the Telegram webhook. It
+   starts with an empty database — add trainings via the bot, or seed existing history
+   (below).
 
 Using **Supabase** for the database instead: remove the `databases` block from
 `render.yaml` and set `DATABASE_URL` to your Supabase connection string.
 
+### Seeding existing history (optional)
+
+Training records are **not** in this repo (see privacy below). To load a local
+`gym.json` into your live database, run the seeder from your machine pointed at the
+production connection string:
+
+```bash
+DATABASE_URL="<your Supabase/Render URL>" node scripts/seed.js path/to/gym.json
+```
+
 ## Data & privacy
 
 - Secrets live only in environment variables — never in the repo. `.env` is gitignored.
+- Personal training data (`gym.json`, `gym.md`) is gitignored and never published; the app
+  reads from the database, not these files.
 - The bot ignores every Telegram account except `ALLOWED_TELEGRAM_USER_ID`.
 - The dashboard is behind a login; the data API returns nothing without a valid session.
-- `gym.json` / `gym.md` are seed/reference data. Delete them if you'd rather not ship
-  sample training numbers in a public repo — the app reads from the database, not these files.

@@ -5,3 +5,7 @@ node_modules/
 *.log
 .DS_Store
 npm-debug.log*
+
+# personal training data — kept local, never published
+gym.json
+gym.md
