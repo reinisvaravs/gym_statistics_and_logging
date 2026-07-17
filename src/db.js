@@ -22,29 +22,19 @@ const round = (v, n = 2) => (v == null ? null : Math.round(+v * 10 ** n) / 10 **
 
 // Returns the exact shape the charts expect: { strength:[{key,name,sessions}], rides, bodyweight }.
 export async function assembleData() {
-  const [sessions, rides, bw] = await Promise.all([
-    q(`SELECT id, date::text AS d, exercise_key, exercise_name, sets,
-              (SELECT min(date) FROM strength_sessions s2 WHERE s2.exercise_key = s.exercise_key) AS first_seen
-         FROM strength_sessions s ORDER BY date`),
+  const [order, sessions, rides, bw] = await Promise.all([
+    // exercises in first-appearance order → stable color slots (tie-break by insert time)
+    q(`SELECT exercise_key, min(exercise_name) AS name, min(date)::text AS first_date, min(created_at) AS first_created
+         FROM strength_sessions GROUP BY exercise_key ORDER BY first_date, first_created`),
+    q(`SELECT id, date::text AS d, exercise_key, sets FROM strength_sessions ORDER BY date, created_at`),
     q(`SELECT id, date::text AS d, location, duration_min, distance_km, speed_kmh,
               avg_hr, avg_watts, avg_cadence, note FROM rides ORDER BY date`),
     q(`SELECT id, date::text AS d, weight_kg FROM bodyweight ORDER BY date`),
   ]);
 
-  // group strength by exercise, ordered by first appearance (stable color slots)
-  const order = [];
-  const byKey = new Map();
-  for (const r of sessions) {
-    if (!byKey.has(r.exercise_key)) {
-      byKey.set(r.exercise_key, { key: r.exercise_key, name: r.exercise_name, first: r.first_seen, sessions: [] });
-      order.push(r.exercise_key);
-    }
-    byKey.get(r.exercise_key).sessions.push({ id: r.id, d: r.d, sets: r.sets });
-  }
-  const strength = order
-    .map(k => byKey.get(k))
-    .sort((a, b) => String(a.first).localeCompare(String(b.first)))
-    .map(({ key, name, sessions }) => ({ key, name, sessions }));
+  const byKey = new Map(order.map(o => [o.exercise_key, { key: o.exercise_key, name: o.name, sessions: [] }]));
+  for (const r of sessions) byKey.get(r.exercise_key).sessions.push({ id: r.id, d: r.d, sets: r.sets });
+  const strength = order.map(o => byKey.get(o.exercise_key));
 
   const ridesOut = rides.map(r => {
     const o = { id: r.id, d: r.d, loc: r.location };
