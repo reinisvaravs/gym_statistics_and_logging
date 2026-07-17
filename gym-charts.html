@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gym — Mar–Jul 2026</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:           #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --muted:          #898781;
+    --grid:           #e1e0d9;
+    --axis:           #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6;
+    --series-2:       #008300;
+    --series-3:       #e87ba4;
+    --series-4:       #eda100;
+    --series-5:       #1baf7a;
+    --series-6:       #eb6834;
+    --series-7:       #4a3aa7;
+    --series-8:       #e34948;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page:           #0d0d0d;
+      --surface-1:      #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --muted:          #898781;
+      --grid:           #2c2c2a;
+      --axis:           #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+      --series-2:       #008300;
+      --series-3:       #d55181;
+      --series-4:       #c98500;
+      --series-5:       #199e70;
+      --series-6:       #d95926;
+      --series-7:       #9085e9;
+      --series-8:       #e66767;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:           #0d0d0d;
+    --surface-1:      #1a1a19;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --muted:          #898781;
+    --grid:           #2c2c2a;
+    --axis:           #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1:       #3987e5;
+    --series-2:       #008300;
+    --series-3:       #d55181;
+    --series-4:       #c98500;
+    --series-5:       #199e70;
+    --series-6:       #d95926;
+    --series-7:       #9085e9;
+    --series-8:       #e66767;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 24px 64px;
+    background: var(--page);
+    color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+
+  header.page { margin-bottom: 28px; }
+  h1 { font-size: 24px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--text-secondary); font-size: 13px; }
+
+  /* stat tiles */
+  .tiles {
+    display: grid; gap: 12px; margin-bottom: 28px;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+  .tile {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .tile .k { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .tile .v { font-size: 26px; font-weight: 600; margin-top: 4px; letter-spacing: -0.02em; }
+  .tile .v .u { font-size: 14px; font-weight: 400; color: var(--text-secondary); margin-left: 2px; }
+  .tile .n { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+  /* chart card */
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 16px 12px; margin-bottom: 20px;
+    position: relative;
+  }
+  .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 2px; }
+  .card h2 { font-size: 15px; font-weight: 600; margin: 0; }
+  .card .desc { font-size: 12px; color: var(--text-secondary); margin: 2px 0 10px; }
+  .card .foot { font-size: 11px; color: var(--muted); margin-top: 8px; }
+
+  .toggle {
+    font: inherit; font-size: 12px; color: var(--text-secondary);
+    background: transparent; border: 1px solid var(--border);
+    border-radius: 6px; padding: 3px 9px; cursor: pointer; white-space: nowrap;
+  }
+  .toggle:hover { background: color-mix(in srgb, var(--text-primary) 5%, transparent); }
+  .toggle[aria-pressed="true"] { color: var(--text-primary); border-color: var(--axis); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+  .legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
+  .plot { position: relative; }
+  .plot svg { display: block; width: 100%; overflow: visible; }
+  .grid-line { stroke: var(--grid); stroke-width: 1; }
+  .axis-line { stroke: var(--axis); stroke-width: 1; }
+  .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .axis-title { fill: var(--muted); font-size: 11px; }
+  .series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .dot { stroke: var(--surface-1); stroke-width: 2; }
+  .dlabel { font-size: 11px; font-weight: 600; fill: var(--text-secondary); }
+  .crosshair { stroke: var(--axis); stroke-width: 1; }
+  .hot { fill: transparent; cursor: crosshair; }
+
+  .tip {
+    position: absolute; pointer-events: none; opacity: 0;
+    transition: opacity .1s; transform: translate(-50%, -100%);
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; font-size: 12px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.14); white-space: nowrap; z-index: 5;
+  }
+  .tip.on { opacity: 1; }
+  .tip .td { font-weight: 600; margin-bottom: 4px; }
+  .tip .tr { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); }
+  .tip .tr i { width: 8px; height: 8px; border-radius: 2px; }
+  .tip .tr b { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tip .tn { margin-top: 4px; color: var(--muted); white-space: normal; max-width: 210px; }
+
+  .tbl { overflow-x: auto; margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  td { color: var(--text-secondary); }
+  td:first-child { color: var(--text-primary); }
+  .hidden { display: none; }
+
+  /* add-entry panel */
+  .add-text {
+    width: 100%; min-height: 120px; resize: vertical; margin-top: 4px;
+    background: var(--page); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .add-text:focus { outline: 2px solid var(--series-1); outline-offset: 1px; }
+  .add-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+  .btn {
+    font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+    color: #fff; background: var(--series-1); border: 1px solid transparent;
+    border-radius: 7px; padding: 7px 16px;
+  }
+  .btn:hover { filter: brightness(1.06); }
+  .btn:disabled { opacity: .5; cursor: default; filter: none; }
+  .btn.ghost { color: var(--text-secondary); background: transparent; border-color: var(--border); }
+  .btn.good { background: var(--good, #0ca30c); }
+  .add-status { font-size: 12px; color: var(--text-secondary); }
+  .add-status.err { color: #d03b3b; }
+  .add-preview { margin-top: 12px; }
+  .add-preview .phead { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+  .add-preview ul { list-style: none; margin: 0 0 10px; padding: 0; }
+  .add-preview li { padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; margin-bottom: 6px; font-size: 13px; }
+  .add-preview .warn { color: #b8860b; font-size: 12px; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="page">
+  <h1>Gym</h1>
+  <div class="sub" id="subtitle"></div>
+</header>
+
+<section class="card" id="c-add">
+  <div class="card-head">
+    <h2>Add a training day</h2>
+    <button class="toggle" id="add-open" aria-pressed="false">+ New entry</button>
+  </div>
+  <div class="desc">Paste your notes however you jotted them — they’re structured automatically, you review, then save.</div>
+  <div id="add-body" class="hidden">
+    <textarea id="add-text" class="add-text" placeholder="e.g.
+Jul 20
+88kg
+Bench 70x10 75x8
+Bike indoors 1h 24km 130bpm"></textarea>
+    <div class="add-row">
+      <button class="btn" id="add-parse">Parse</button>
+      <button class="btn ghost" id="add-clear">Clear</button>
+      <span class="add-status" id="add-status"></span>
+    </div>
+    <div id="add-preview" class="add-preview hidden"></div>
+  </div>
+</section>
+
+<div class="tiles" id="tiles"></div>
+
+<section class="card" id="c-cadence">
+  <div class="card-head"><h2>Training cadence</h2></div>
+  <div class="desc">How often you train, and how long between repeats of the same lift.</div>
+  <div class="tiles" id="cadence"></div>
+  <div class="foot" id="f-cadence"></div>
+</section>
+
+<section class="card" id="c-strength">
+  <div class="card-head">
+    <h2>Strength progression</h2>
+    <button class="toggle" data-table="strength" aria-pressed="false">Table</button>
+  </div>
+  <div class="desc">Estimated 1RM per session — the best set of the day, via Epley.</div>
+  <div class="legend" id="l-strength"></div>
+  <div class="plot" id="p-strength"></div>
+  <div class="tbl hidden" id="t-strength"></div>
+  <div class="foot">Epley: weight × (1 + reps/30). Assisted reps are excluded — only completed reps count.</div>
+</section>
+
+<section class="card" id="c-speed">
+  <div class="card-head">
+    <h2>Cycling — average speed</h2>
+    <button class="toggle" data-table="speed" aria-pressed="false">Table</button>
+  </div>
+  <div class="desc">Indoors and outdoors kept separate — different bike, and wind resistance outdoors.</div>
+  <div class="legend" id="l-speed"></div>
+  <div class="plot" id="p-speed"></div>
+  <div class="tbl hidden" id="t-speed"></div>
+  <div class="foot" id="f-speed"></div>
+</section>
+
+<section class="card" id="c-dist">
+  <div class="card-head">
+    <h2>Ride distance</h2>
+    <button class="toggle" data-table="dist" aria-pressed="false">Table</button>
+  </div>
+  <div class="desc">Distance per ride, coloured by where you rode.</div>
+  <div class="legend" id="l-dist"></div>
+  <div class="plot" id="p-dist"></div>
+  <div class="tbl hidden" id="t-dist"></div>
+  <div class="foot" id="f-dist"></div>
+</section>
+
+<section class="card" id="c-hr">
+  <div class="card-head">
+    <h2>Cycling — average heart rate</h2>
+    <button class="toggle" data-table="hr" aria-pressed="false">Table</button>
+  </div>
+  <div class="desc">On its own axis rather than layered onto speed — two scales on one plot would invent a correlation.</div>
+  <div class="legend" id="l-hr"></div>
+  <div class="plot" id="p-hr"></div>
+  <div class="tbl hidden" id="t-hr"></div>
+  <div class="foot" id="f-hr"></div>
+</section>
+
+<section class="card" id="c-bw">
+  <div class="card-head">
+    <h2>Bodyweight</h2>
+    <button class="toggle" data-table="bw" aria-pressed="false">Table</button>
+  </div>
+  <div class="desc">Recorded whenever you happened to step on the gym scale — not a training metric.</div>
+  <div class="plot" id="p-bw"></div>
+  <div class="tbl hidden" id="t-bw"></div>
+  <div class="foot">Only 3 readings across 4½ months, so this is three data points, not a trend.</div>
+</section>
+
+</div>
+
+<script>
+/* ------------------------------------------------- data (loaded from gym.json) */
+
+// Populated by load(); render only runs after the fetch resolves.
+let STRENGTH = {};   // { key: { name, hex(), sessions:[{d,sets}] } }
+let RIDES = [];
+let BODYWEIGHT = [];
+
+const SERIES = i => () => cssv('--series-' + (((i) % 8) + 1));   // slot by declaration order
+
+function ingest(data) {
+  STRENGTH = {};
+  data.strength.forEach((ex, i) => {
+    STRENGTH[ex.key] = { name: ex.name, hex: SERIES(i), sessions: ex.sessions };
+  });
+  RIDES = data.rides;
+  BODYWEIGHT = data.bodyweight;
+}
+
+const LOC = { in: { name:'Indoors', hex: () => cssv('--series-1') },
+              out:{ name:'Outdoors', hex: () => cssv('--series-2') } };
+
+/* ------------------------------------------------------------- helpers */
+
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const dt   = s => new Date(s + 'T00:00:00');
+const MON  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fdate= s => { const x = dt(s); return MON[x.getMonth()] + ' ' + x.getDate(); };
+const e1rm = st => st.w * (1 + st.r / 30);          // Epley, completed reps only
+const best = ss => Math.max(...ss.map(e1rm));
+const round= (v, n=1) => Math.round(v * 10**n) / 10**n;
+const dur  = m => m >= 60 ? `${Math.floor(m/60)}h ${m%60 ? (m%60)+'min' : ''}`.trim() : `${m}min`;
+const el   = (t, c) => { const e = document.createElementNS('http://www.w3.org/2000/svg', t);
+                         if (c) e.setAttribute('class', c); return e; };
+const attr = (e, o) => { for (const k in o) e.setAttribute(k, o[k]); return e; };
+
+let X0, X1;   // date domain, computed from the data in setDomain()
+const PAD = { l: 46, r: 18, t: 22, b: 30 };
+const H   = 240;
+
+function setDomain() {
+  const ds = [
+    ...Object.values(STRENGTH).flatMap(x => x.sessions.map(s => s.d)),
+    ...RIDES.map(r => r.d),
+    ...BODYWEIGHT.map(b => b.d),
+  ].sort();
+  X0 = dt(ds[0]).getTime();
+  X1 = dt(ds[ds.length - 1]).getTime();
+}
+
+function niceTicks(min, max, want = 5) {
+  const span = max - min || 1;
+  const raw  = span / want;
+  const mag  = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw) || 10 * mag;
+  const lo   = Math.floor(min / step) * step, hi = Math.ceil(max / step) * step;
+  const out  = [];
+  for (let v = lo; v <= hi + step / 2; v += step) out.push(round(v, 6));
+  return out;
+}
+
+function monthTicks() {
+  const out = [];
+  const end = new Date(X1);
+  let d = new Date(X0); d = new Date(d.getFullYear(), d.getMonth(), 1);
+  while (d.getTime() <= end.getTime()) {
+    out.push(d.getTime());
+    d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  }
+  return out;
+}
+
+function monthLabel(t) {
+  const d = new Date(t);
+  return d.getMonth() === 0 ? `${MON[0]} ’${String(d.getFullYear()).slice(2)}` : MON[d.getMonth()];
+}
+
+function tooltip(host) {
+  const t = document.createElement('div');
+  t.className = 'tip';
+  host.appendChild(t);
+  return t;
+}
+
+/* -------------------------------------------------------- line chart */
+/* series: [{ name, hex(), pts: [{ t, v, meta }] }]  — one shared y-axis */
+
+function lineChart(host, series, opts = {}) {
+  host.innerHTML = '';
+  const tip = tooltip(host);
+  const W   = host.clientWidth || 640;
+  const svg = attr(el('svg'), { viewBox: `0 0 ${W} ${H}`, height: H });
+  host.appendChild(svg);
+
+  const all  = series.flatMap(s => s.pts.map(p => p.v));
+  const pad  = (Math.max(...all) - Math.min(...all)) * 0.12 || 2;
+  const ticks= niceTicks(Math.min(...all) - pad, Math.max(...all) + pad, 5);
+  const yMin = ticks[0], yMax = ticks[ticks.length - 1];
+  const sx   = t => PAD.l + (t - X0) / (X1 - X0) * (W - PAD.l - PAD.r);
+  const sy   = v => H - PAD.b - (v - yMin) / (yMax - yMin) * (H - PAD.t - PAD.b);
+
+  ticks.forEach(v => {
+    svg.appendChild(attr(el('line', 'grid-line'), { x1: PAD.l, x2: W - PAD.r, y1: sy(v), y2: sy(v) }));
+    svg.appendChild(Object.assign(attr(el('text', 'tick'),
+      { x: PAD.l - 8, y: sy(v) + 4, 'text-anchor': 'end' }), { textContent: round(v, 1) }));
+  });
+  svg.appendChild(attr(el('line', 'axis-line'), { x1: PAD.l, x2: W - PAD.r, y1: H - PAD.b, y2: H - PAD.b }));
+  monthTicks().forEach(t => svg.appendChild(Object.assign(attr(el('text', 'tick'),
+    { x: sx(t), y: H - PAD.b + 16, 'text-anchor': 'middle' }), { textContent: monthLabel(t) })));
+  if (opts.yTitle) svg.appendChild(Object.assign(attr(el('text', 'axis-title'),
+    { x: PAD.l - 42, y: PAD.t - 8, 'text-anchor': 'start' }), { textContent: opts.yTitle }));
+
+  series.forEach(s => {
+    const pts = [...s.pts].sort((a, b) => a.t - b.t);
+    const d   = pts.map((p, i) => (i ? 'L' : 'M') + sx(p.t) + ' ' + sy(p.v)).join(' ');
+    svg.appendChild(attr(el('path', 'series-line'), { d, stroke: s.hex() }));
+    pts.forEach(p => svg.appendChild(attr(el('circle', 'dot'), { cx: sx(p.t), cy: sy(p.v), r: 4, fill: s.hex() })));
+    // direct-label the last point of each series — identity never rests on colour alone
+    const last = pts[pts.length - 1];
+    svg.appendChild(Object.assign(attr(el('text', 'dlabel'),
+      { x: sx(last.t) + 8, y: sy(last.v) + 4, fill: s.hex() }), { textContent: s.name }));
+  });
+
+  // crosshair + tooltip on nearest session date
+  const cross = attr(el('line', 'crosshair'), { y1: PAD.t, y2: H - PAD.b, opacity: 0 });
+  svg.appendChild(cross);
+  const stamps = [...new Set(series.flatMap(s => s.pts.map(p => p.t)))].sort((a, b) => a - b);
+  const hot = attr(el('rect', 'hot'), { x: PAD.l, y: PAD.t, width: W - PAD.l - PAD.r, height: H - PAD.t - PAD.b });
+  svg.appendChild(hot);
+
+  const show = ev => {
+    const bx = svg.getBoundingClientRect();
+    const mx = (ev.clientX - bx.left) / bx.width * W;
+    const t  = stamps.reduce((a, b) => Math.abs(sx(b) - mx) < Math.abs(sx(a) - mx) ? b : a);
+    const hits = series.map(s => ({ s, p: s.pts.find(p => p.t === t) })).filter(h => h.p);
+    if (!hits.length) return;
+    attr(cross, { x1: sx(t), x2: sx(t), opacity: 1 });
+    const td = new Date(t);
+    tip.innerHTML =
+      `<div class="td">${MON[td.getMonth()]} ${td.getDate()}</div>` +
+      hits.map(h => `<div class="tr"><i style="background:${h.s.hex()}"></i>${h.s.name}
+                     <b>${h.p.label ?? round(h.p.v, 1)}</b></div>`).join('') +
+      (hits[0].p.note ? `<div class="tn">${hits[0].p.note}</div>` : '');
+    tip.classList.add('on');
+    tip.style.left = (sx(t) / W * 100) + '%';
+    tip.style.top  = (Math.min(...hits.map(h => sy(h.p.v))) - 12) + 'px';
+  };
+  hot.addEventListener('mousemove', show);
+  hot.addEventListener('mouseleave', () => { tip.classList.remove('on'); attr(cross, { opacity: 0 }); });
+}
+
+/* --------------------------------------------------------- bar chart */
+
+function barChart(host, rows, opts = {}) {
+  host.innerHTML = '';
+  const tip = tooltip(host);
+  const W   = host.clientWidth || 640;
+  const svg = attr(el('svg'), { viewBox: `0 0 ${W} ${H}`, height: H });
+  host.appendChild(svg);
+
+  const ticks = niceTicks(0, Math.max(...rows.map(r => r.v)), 5);
+  const yMax  = ticks[ticks.length - 1];
+  const sy    = v => H - PAD.b - v / yMax * (H - PAD.t - PAD.b);
+  const band  = (W - PAD.l - PAD.r) / rows.length;
+  const bw    = Math.min(band - 2, 34);                       // 2px surface gap between bars
+
+  ticks.forEach(v => {
+    svg.appendChild(attr(el('line', 'grid-line'), { x1: PAD.l, x2: W - PAD.r, y1: sy(v), y2: sy(v) }));
+    svg.appendChild(Object.assign(attr(el('text', 'tick'),
+      { x: PAD.l - 8, y: sy(v) + 4, 'text-anchor': 'end' }), { textContent: v }));
+  });
+  svg.appendChild(attr(el('line', 'axis-line'), { x1: PAD.l, x2: W - PAD.r, y1: H - PAD.b, y2: H - PAD.b }));
+  if (opts.yTitle) svg.appendChild(Object.assign(attr(el('text', 'axis-title'),
+    { x: PAD.l - 42, y: PAD.t - 8, 'text-anchor': 'start' }), { textContent: opts.yTitle }));
+
+  rows.forEach((r, i) => {
+    const cx = PAD.l + band * i + band / 2;
+    const g  = el('g');
+    const yt = sy(r.v), yb = H - PAD.b, xl = cx - bw/2, xr = cx + bw/2;
+    // 4px rounded data-end, anchored to the baseline
+    const d = `M${xl} ${yb} L${xl} ${yt + 4} Q${xl} ${yt} ${xl + 4} ${yt} L${xr - 4} ${yt} Q${xr} ${yt} ${xr} ${yt + 4} L${xr} ${yb} Z`;
+    g.appendChild(attr(el('path'), { d, fill: r.hex }));
+    svg.appendChild(g);
+    svg.appendChild(Object.assign(attr(el('text', 'tick'),
+      { x: cx, y: H - PAD.b + 16, 'text-anchor': 'middle' }), { textContent: r.short }));
+
+    const hit = attr(el('rect', 'hot'), { x: cx - band / 2, y: PAD.t, width: band, height: H - PAD.t - PAD.b });
+    svg.appendChild(hit);
+    hit.addEventListener('mouseenter', () => {
+      tip.innerHTML = `<div class="td">${r.label}</div>` +
+        `<div class="tr"><i style="background:${r.hex}"></i>${r.group} <b>${r.v} km</b></div>` +
+        (r.extra ? `<div class="tr">${r.extra}</div>` : '') +
+        (r.note ? `<div class="tn">${r.note}</div>` : '');
+      tip.classList.add('on');
+      tip.style.left = (cx / W * 100) + '%';
+      tip.style.top  = (sy(r.v) - 12) + 'px';
+    });
+    hit.addEventListener('mouseleave', () => tip.classList.remove('on'));
+  });
+}
+
+/* ------------------------------------------------------------ legends */
+
+function legend(host, items) {
+  host.innerHTML = items.map(i =>
+    `<span><i style="background:${i.hex()}"></i>${i.name}</span>`).join('');
+}
+
+/* ------------------------------------------------------------- tables */
+
+function table(host, cols, rows) {
+  host.innerHTML = `<table><thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>` +
+    `<tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c ?? '—'}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+
+/* -------------------------------------------------------------- tiles */
+
+const DAY = 86400000;
+const tileHTML = t => `<div class="tile"><div class="k">${t.k}</div>
+  <div class="v">${t.v}${t.u ? `<span class="u">${t.u}</span>` : ''}</div>
+  <div class="n">${t.n}</div></div>`;
+
+const uniqueTrainingDays = () => [...new Set([
+  ...Object.values(STRENGTH).flatMap(x => x.sessions.map(s => s.d)),
+  ...RIDES.map(r => r.d),
+])].sort();
+
+// heaviest working set of an exercise, for the tile note
+function heaviest(ex) {
+  let top = null;
+  ex.sessions.forEach(s => s.sets.forEach(set => { if (!top || set.w > top.w) top = { w: set.w, r: set.r, d: s.d }; }));
+  return top;
+}
+
+function renderTiles() {
+  const days   = uniqueTrainingDays();
+  const out    = RIDES.filter(r => r.loc === 'out'), inn = RIDES.filter(r => r.loc === 'in');
+  const totalKm= RIDES.reduce((a, r) => a + (r.km || 0), 0);
+  const avg    = rs => { const s = rs.filter(r => r.kmh); return s.length ? s.reduce((a, r) => a + r.kmh, 0) / s.length : 0; };
+  const bench  = STRENGTH.bench && heaviest(STRENGTH.bench);
+  const squat  = STRENGTH.squat && heaviest(STRENGTH.squat);
+
+  const tiles = [{ k: 'Sessions', v: days.length, n: `${fdate(days[0])} – ${fdate(days.at(-1))}` }];
+  if (bench) tiles.push({ k: 'Heaviest bench', v: bench.w, u: 'kg', n: `${bench.w}kg × ${bench.r} on ${fdate(bench.d)}` });
+  if (squat) tiles.push({ k: 'Heaviest squat', v: squat.w, u: 'kg', n: `${squat.w}kg × ${squat.r} on ${fdate(squat.d)}` });
+  tiles.push(
+    { k: 'Distance logged', v: round(totalKm), u: 'km', n: `${RIDES.length} rides` },
+    { k: 'Avg speed out',   v: round(avg(out), 1), u: 'km/h', n: `${out.length} rides outdoors` },
+    { k: 'Avg speed in',    v: round(avg(inn), 1), u: 'km/h', n: `${inn.length} rides indoors` },
+  );
+  document.getElementById('tiles').innerHTML = tiles.map(tileHTML).join('');
+}
+
+/* --------------------------------------------------- training cadence */
+
+// avg rest days between consecutive sessions of one kind = calendar gap − 1
+// (the in-between days aren't true rest — you may have trained something else)
+function restStats(dates) {
+  const s = [...new Set(dates)].sort();
+  if (s.length < 2) return { mean: 0, median: 0, n: s.length };
+  const gaps = s.slice(1).map((d, i) => (dt(d) - dt(s[i])) / DAY - 1);
+  const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const mid = sorted.length % 2
+    ? sorted[(sorted.length - 1) / 2]
+    : (sorted[sorted.length/2 - 1] + sorted[sorted.length/2]) / 2;
+  return { mean, median: mid, n: s.length };
+}
+
+function renderCadence() {
+  const days     = uniqueTrainingDays();
+  const spanDays = (dt(days.at(-1)) - dt(days[0])) / DAY || 1;
+  const perWeek  = days.length / (spanDays / 7);
+  const bench = restStats((STRENGTH.bench?.sessions || []).map(s => s.d));
+  const squat = restStats((STRENGTH.squat?.sessions || []).map(s => s.d));
+  const bike  = restStats(RIDES.map(r => r.d));
+
+  document.getElementById('cadence').innerHTML = [
+    { k: 'Training days / week', v: round(perWeek, 1),      n: `${days.length} days over ${round(spanDays/7,1)} weeks` },
+    { k: 'Rest between bench',   v: round(bench.mean, 1), u: 'days', n: `median ${round(bench.median,0)} · ${bench.n} sessions` },
+    { k: 'Rest between squat',   v: round(squat.mean, 1), u: 'days', n: `median ${round(squat.median,0)} · ${squat.n} sessions` },
+    { k: 'Rest between bike',    v: round(bike.mean, 1),  u: 'days', n: `median ${round(bike.median,0)} · ${bike.n} rides` },
+  ].map(tileHTML).join('');
+
+  document.getElementById('f-cadence').textContent =
+    'Rest = calendar days between two same-lift sessions, minus the session days themselves. ' +
+    'The mean is pulled up by any long breaks, so the median is shown alongside.';
+}
+
+/* ------------------------------------------------------------- render */
+
+// footnote naming the rides dropped from a chart because they lack a metric
+const excNote = (pred, what) => {
+  const d = RIDES.filter(pred).map(r => fdate(r.d));
+  return d.length
+    ? `${d.length} ride${d.length > 1 ? 's' : ''} excluded — ${d.join(', ')} ${d.length > 1 ? 'have' : 'has'} no ${what} recorded.`
+    : '';
+};
+
+function renderStrength() {
+  const series = Object.values(STRENGTH).map(x => ({
+    name: x.name, hex: x.hex,
+    pts: x.sessions.map(s => ({ t: dt(s.d).getTime(), v: best(s.sets),
+      label: round(best(s.sets), 1) + 'kg' }))
+  }));
+  legend(document.getElementById('l-strength'), series);
+  lineChart(document.getElementById('p-strength'), series, { yTitle: 'kg' });
+
+  const rows = [];
+  Object.values(STRENGTH).forEach(x => x.sessions.forEach(s => rows.push([
+    fdate(s.d), x.name,
+    s.sets.map(t => `${t.w}kg × ${t.r}${t.a ? ` + ${t.a} assisted` : ''}`).join(', '),
+    round(best(s.sets), 1) + 'kg',
+  ])));
+  table(document.getElementById('t-strength'), ['Date', 'Exercise', 'Sets', 'Est. 1RM'], rows);
+}
+
+function renderSpeed() {
+  const series = ['in', 'out'].map(k => ({
+    name: LOC[k].name, hex: LOC[k].hex,
+    pts: RIDES.filter(r => r.loc === k && r.kmh).map(r => ({
+      t: dt(r.d).getTime(), v: r.kmh, label: r.kmh + ' km/h', note: r.note }))
+  }));
+  legend(document.getElementById('l-speed'), series);
+  lineChart(document.getElementById('p-speed'), series, { yTitle: 'km/h' });
+  table(document.getElementById('t-speed'), ['Date', 'Where', 'Speed', 'Duration', 'Distance'],
+    RIDES.filter(r => r.kmh).map(r => [fdate(r.d), LOC[r.loc].name, r.kmh + ' km/h', dur(r.min),
+      r.km ? r.km + ' km' : null]));
+  document.getElementById('f-speed').textContent = excNote(r => !r.kmh, 'speed');
+}
+
+function renderDist() {
+  const rows = RIDES.filter(r => r.km).map(r => ({
+    v: r.km, short: fdate(r.d).replace(' ', ' '), label: fdate(r.d),
+    group: LOC[r.loc].name, hex: LOC[r.loc].hex(),
+    extra: `${dur(r.min)} · ${r.kmh} km/h`, note: r.note }));
+  legend(document.getElementById('l-dist'), Object.values(LOC));
+  barChart(document.getElementById('p-dist'), rows, { yTitle: 'km' });
+  table(document.getElementById('t-dist'), ['Date', 'Where', 'Distance', 'Duration', 'Speed'],
+    RIDES.filter(r => r.km).map(r => [fdate(r.d), LOC[r.loc].name, r.km + ' km', dur(r.min), r.kmh + ' km/h']));
+  document.getElementById('f-dist').textContent = excNote(r => !r.km, 'distance');
+}
+
+function renderHR() {
+  const series = ['in', 'out'].map(k => ({
+    name: LOC[k].name, hex: LOC[k].hex,
+    pts: RIDES.filter(r => r.loc === k && r.bpm).map(r => ({
+      t: dt(r.d).getTime(), v: r.bpm, label: r.bpm + ' bpm', note: r.note }))
+  }));
+  legend(document.getElementById('l-hr'), series);
+  lineChart(document.getElementById('p-hr'), series, { yTitle: 'bpm' });
+  table(document.getElementById('t-hr'), ['Date', 'Where', 'Avg HR', 'Speed', 'Duration'],
+    RIDES.filter(r => r.bpm).map(r => [fdate(r.d), LOC[r.loc].name, r.bpm + ' bpm',
+      r.kmh ? r.kmh + ' km/h' : null, dur(r.min)]));
+  document.getElementById('f-hr').textContent = excNote(r => !r.bpm, 'heart rate');
+}
+
+function renderBW() {
+  const series = [{ name: 'Bodyweight', hex: () => cssv('--series-1'),
+    pts: BODYWEIGHT.map(b => ({ t: dt(b.d).getTime(), v: b.kg, label: b.kg + 'kg' })) }];
+  lineChart(document.getElementById('p-bw'), series, { yTitle: 'kg' });
+  table(document.getElementById('t-bw'), ['Date', 'Bodyweight'], BODYWEIGHT.map(b => [fdate(b.d), b.kg + ' kg']));
+}
+
+function renderAll() {
+  if (!RIDES.length && !Object.keys(STRENGTH).length) return;
+  setDomain();
+  const days = uniqueTrainingDays();
+  document.getElementById('subtitle').textContent =
+    `${days.length} sessions · ${fdate(days[0])} – ${fdate(days.at(-1))}, ${new Date(X1).getFullYear()}`;
+  renderTiles(); renderCadence();
+  renderStrength(); renderSpeed(); renderDist(); renderHR(); renderBW();
+}
+
+async function load() {
+  const res = await fetch('gym.json', { cache: 'no-store' });
+  ingest(await res.json());
+  renderAll();
+}
+load().catch(err => {
+  document.getElementById('tiles').innerHTML =
+    `<div class="tile"><div class="k">Couldn’t load data</div><div class="n">${err.message}. ` +
+    `Open this page through the local server: <code>node server.js</code>, then http://localhost:8731</div></div>`;
+});
+
+/* ------------------------------------------------------- add-entry flow */
+
+const $ = id => document.getElementById(id);
+let pendingItems = null;   // normalized items awaiting Save
+
+const openBtn = $('add-open'), body = $('add-body');
+openBtn.addEventListener('click', () => {
+  const open = openBtn.getAttribute('aria-pressed') === 'true';
+  openBtn.setAttribute('aria-pressed', String(!open));
+  openBtn.textContent = open ? '+ New entry' : 'Close';
+  body.classList.toggle('hidden', open);
+});
+
+$('add-clear').addEventListener('click', () => {
+  $('add-text').value = '';
+  $('add-preview').classList.add('hidden');
+  $('add-status').textContent = '';
+  pendingItems = null;
+});
+
+function setStatus(msg, isErr) {
+  const s = $('add-status');
+  s.textContent = msg;
+  s.classList.toggle('err', !!isErr);
+}
+
+$('add-parse').addEventListener('click', async () => {
+  const text = $('add-text').value.trim();
+  if (!text) { setStatus('Nothing to parse.', true); return; }
+  $('add-parse').disabled = true;
+  setStatus('Reading your notes with the local model…');
+  $('add-preview').classList.add('hidden');
+  try {
+    const res = await fetch('/parse', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Parse failed');
+    pendingItems = data.items || [];
+    renderPreview(data.preview || [], data.warnings || []);
+    setStatus(pendingItems.length ? 'Review below, then Save.' : 'The model found no entries — try rephrasing.', !pendingItems.length);
+  } catch (e) {
+    setStatus(e.message, true);
+  } finally {
+    $('add-parse').disabled = false;
+  }
+});
+
+function renderPreview(preview, warnings) {
+  const box = $('add-preview');
+  if (!preview.length) { box.classList.add('hidden'); return; }
+  box.innerHTML =
+    `<div class="phead">Will add ${preview.length} entr${preview.length > 1 ? 'ies' : 'y'}</div>` +
+    warnings.map(w => `<div class="warn">⚠ ${w}</div>`).join('') +
+    `<ul>${preview.map(p => `<li>${p}</li>`).join('')}</ul>` +
+    `<button class="btn good" id="add-save">Save to gym.json</button>`;
+  box.classList.remove('hidden');
+  $('add-save').addEventListener('click', saveEntries);
+}
+
+async function saveEntries() {
+  if (!pendingItems || !pendingItems.length) return;
+  $('add-save').disabled = true;
+  setStatus('Saving…');
+  try {
+    const res = await fetch('/save', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ items: pendingItems }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Save failed');
+    ingest(data.data);
+    renderAll();
+    $('add-text').value = '';
+    $('add-preview').classList.add('hidden');
+    pendingItems = null;
+    setStatus('Saved — charts updated. ✓');
+  } catch (e) {
+    setStatus(e.message, true);
+    if ($('add-save')) $('add-save').disabled = false;
+  }
+}
+
+/* table toggles */
+document.querySelectorAll('[data-table]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const k = btn.dataset.table;
+    const on = btn.getAttribute('aria-pressed') === 'true';
+    btn.setAttribute('aria-pressed', String(!on));
+    btn.textContent = on ? 'Table' : 'Chart';
+    document.getElementById('t-' + k).classList.toggle('hidden', on);
+    document.getElementById('p-' + k).classList.toggle('hidden', !on);
+    const lg = document.getElementById('l-' + k);
+    if (lg) lg.classList.toggle('hidden', !on);
+  });
+});
+
+let rt;
+addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(renderAll, 120); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderAll);
+</script>
+</body>
+</html>
