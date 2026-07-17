@@ -1,0 +1,39 @@
+# Render blueprint. In Render: New → Blueprint → point at this repo.
+# Using Supabase instead of Render Postgres? Delete the `databases` block below and
+# set DATABASE_URL yourself in the dashboard.
+services:
+  - type: web
+    name: gym-tracker
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: SESSION_SECRET
+        generateValue: true          # Render generates a strong secret
+      - key: DATABASE_URL
+        fromDatabase:
+          name: gym-db
+          property: connectionString
+      # --- set these in the dashboard (Environment tab); never commit real values ---
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: ALLOWED_TELEGRAM_USER_ID
+        sync: false
+      - key: AUTH_USERNAME
+        sync: false
+      - key: AUTH_PASSWORD_HASH
+        sync: false
+
+databases:
+  - name: gym-db
+    plan: free
