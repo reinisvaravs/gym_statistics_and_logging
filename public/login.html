@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gym — Sign in</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f9f9f7; --card:#fcfcfb; --ink:#0b0b0b; --sub:#52514e;
+    --border:rgba(11,11,11,.12); --accent:#2a78d6; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0d0d0d; --card:#1a1a19; --ink:#fff; --sub:#c3c2b7;
+    --border:rgba(255,255,255,.14); --accent:#3987e5; } }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--ink);
+    font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; padding:24px; }
+  form { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:28px;
+    width:100%; max-width:340px; }
+  h1 { margin:0 0 4px; font-size:20px; }
+  p { margin:0 0 20px; color:var(--sub); font-size:13px; }
+  label { display:block; font-size:12px; color:var(--sub); margin:14px 0 5px; }
+  input { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px;
+    background:var(--bg); color:var(--ink); font:inherit; }
+  input:focus { outline:2px solid var(--accent); outline-offset:1px; }
+  button { width:100%; margin-top:20px; padding:11px; border:0; border-radius:8px; background:var(--accent);
+    color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:default; }
+  .err { margin-top:14px; color:#d03b3b; font-size:13px; min-height:18px; }
+</style>
+</head>
+<body>
+<form id="f">
+  <h1>Gym</h1>
+  <p>Sign in to view your training.</p>
+  <label for="u">Username</label>
+  <input id="u" name="username" autocomplete="username" autofocus>
+  <label for="p">Password</label>
+  <input id="p" name="password" type="password" autocomplete="current-password">
+  <button id="b" type="submit">Sign in</button>
+  <div class="err" id="e"></div>
+</form>
+<script>
+  const f = document.getElementById('f');
+  f.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const b = document.getElementById('b'), e = document.getElementById('e');
+    b.disabled = true; e.textContent = '';
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: document.getElementById('u').value, password: document.getElementById('p').value }),
+      });
+      if (res.ok) { location.href = '/'; return; }
+      const d = await res.json().catch(() => ({}));
+      e.textContent = d.error || 'Sign in failed.';
+    } catch (err) { e.textContent = err.message; }
+    finally { b.disabled = false; }
+  });
+</script>
+</body>
+</html>

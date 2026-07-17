@@ -76,6 +76,8 @@
   .wrap { max-width: 960px; margin: 0 auto; }
 
   header.page { margin-bottom: 28px; }
+  .head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .hint { margin-top: 8px; font-size: 12px; color: var(--muted); }
   h1 { font-size: 24px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
   .sub { color: var(--text-secondary); font-size: 13px; }
 
@@ -182,30 +184,15 @@
 <div class="wrap">
 
 <header class="page">
-  <h1>Gym</h1>
-  <div class="sub" id="subtitle"></div>
-</header>
-
-<section class="card" id="c-add">
-  <div class="card-head">
-    <h2>Add a training day</h2>
-    <button class="toggle" id="add-open" aria-pressed="false">+ New entry</button>
-  </div>
-  <div class="desc">Paste your notes however you jotted them — they’re structured automatically, you review, then save.</div>
-  <div id="add-body" class="hidden">
-    <textarea id="add-text" class="add-text" placeholder="e.g.
-Jul 20
-88kg
-Bench 70x10 75x8
-Bike indoors 1h 24km 130bpm"></textarea>
-    <div class="add-row">
-      <button class="btn" id="add-parse">Parse</button>
-      <button class="btn ghost" id="add-clear">Clear</button>
-      <span class="add-status" id="add-status"></span>
+  <div class="head-row">
+    <div>
+      <h1>Gym</h1>
+      <div class="sub" id="subtitle"></div>
     </div>
-    <div id="add-preview" class="add-preview hidden"></div>
+    <button class="toggle" id="logout">Log out</button>
   </div>
-</section>
+  <div class="hint">Add or edit trainings by messaging your Telegram bot.</div>
+</header>
 
 <div class="tiles" id="tiles"></div>
 
@@ -652,99 +639,21 @@ function renderAll() {
 }
 
 async function load() {
-  const res = await fetch('gym.json', { cache: 'no-store' });
+  const res = await fetch('/api/data', { cache: 'no-store' });
+  if (res.status === 401) { location.href = '/login'; return; }
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
   ingest(await res.json());
   renderAll();
 }
 load().catch(err => {
   document.getElementById('tiles').innerHTML =
-    `<div class="tile"><div class="k">Couldn’t load data</div><div class="n">${err.message}. ` +
-    `Open this page through the local server: <code>node server.js</code>, then http://localhost:8731</div></div>`;
+    `<div class="tile"><div class="k">Couldn’t load data</div><div class="n">${err.message}</div></div>`;
 });
 
-/* ------------------------------------------------------- add-entry flow */
-
-const $ = id => document.getElementById(id);
-let pendingItems = null;   // normalized items awaiting Save
-
-const openBtn = $('add-open'), body = $('add-body');
-openBtn.addEventListener('click', () => {
-  const open = openBtn.getAttribute('aria-pressed') === 'true';
-  openBtn.setAttribute('aria-pressed', String(!open));
-  openBtn.textContent = open ? '+ New entry' : 'Close';
-  body.classList.toggle('hidden', open);
+document.getElementById('logout').addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' });
+  location.href = '/login';
 });
-
-$('add-clear').addEventListener('click', () => {
-  $('add-text').value = '';
-  $('add-preview').classList.add('hidden');
-  $('add-status').textContent = '';
-  pendingItems = null;
-});
-
-function setStatus(msg, isErr) {
-  const s = $('add-status');
-  s.textContent = msg;
-  s.classList.toggle('err', !!isErr);
-}
-
-$('add-parse').addEventListener('click', async () => {
-  const text = $('add-text').value.trim();
-  if (!text) { setStatus('Nothing to parse.', true); return; }
-  $('add-parse').disabled = true;
-  setStatus('Reading your notes with the local model…');
-  $('add-preview').classList.add('hidden');
-  try {
-    const res = await fetch('/parse', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Parse failed');
-    pendingItems = data.items || [];
-    renderPreview(data.preview || [], data.warnings || []);
-    setStatus(pendingItems.length ? 'Review below, then Save.' : 'The model found no entries — try rephrasing.', !pendingItems.length);
-  } catch (e) {
-    setStatus(e.message, true);
-  } finally {
-    $('add-parse').disabled = false;
-  }
-});
-
-function renderPreview(preview, warnings) {
-  const box = $('add-preview');
-  if (!preview.length) { box.classList.add('hidden'); return; }
-  box.innerHTML =
-    `<div class="phead">Will add ${preview.length} entr${preview.length > 1 ? 'ies' : 'y'}</div>` +
-    warnings.map(w => `<div class="warn">⚠ ${w}</div>`).join('') +
-    `<ul>${preview.map(p => `<li>${p}</li>`).join('')}</ul>` +
-    `<button class="btn good" id="add-save">Save to gym.json</button>`;
-  box.classList.remove('hidden');
-  $('add-save').addEventListener('click', saveEntries);
-}
-
-async function saveEntries() {
-  if (!pendingItems || !pendingItems.length) return;
-  $('add-save').disabled = true;
-  setStatus('Saving…');
-  try {
-    const res = await fetch('/save', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ items: pendingItems }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Save failed');
-    ingest(data.data);
-    renderAll();
-    $('add-text').value = '';
-    $('add-preview').classList.add('hidden');
-    pendingItems = null;
-    setStatus('Saved — charts updated. ✓');
-  } catch (e) {
-    setStatus(e.message, true);
-    if ($('add-save')) $('add-save').disabled = false;
-  }
-}
 
 /* table toggles */
 document.querySelectorAll('[data-table]').forEach(btn => {
