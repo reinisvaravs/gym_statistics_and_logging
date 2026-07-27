@@ -1,5 +1,5 @@
 {
-  "name": "gym-tracker",
+  "name": "gym_statistics_and_logging",
   "version": "2.0.0",
   "description": "Telegram-bot + web gym tracker with AI-parsed training logs",
   "type": "module",
@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "seed": "node scripts/seed.js",
+    "import:strava": "node scripts/import-strava.js",
     "dev": "node --watch src/server.js"
   },
   "dependencies": {

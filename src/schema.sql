@@ -1,15 +1,22 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+-- A set is { "w": 70, "r": 8, "a": 0, "rpe": 8, "bw": true }
+--   w   loaded weight in kg. NULL/0 with bw=true means unweighted bodyweight work.
+--   r   reps;  a  reps a spotter helped finish
+--   rpe optional 1-10 rating of perceived exertion
+--   bw  true when bodyweight is the load and w is *added* weight (pull-ups, dips)
 CREATE TABLE IF NOT EXISTS strength_sessions (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   date          date NOT NULL,
   exercise_key  text NOT NULL,
   exercise_name text NOT NULL,
-  sets          jsonb NOT NULL DEFAULT '[]',   -- [{ "w": 70, "r": 8, "a": 0 }]
+  sets          jsonb NOT NULL DEFAULT '[]',
+  note          text,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_strength_date ON strength_sessions (date);
 CREATE INDEX IF NOT EXISTS idx_strength_key  ON strength_sessions (exercise_key);
+ALTER TABLE strength_sessions ADD COLUMN IF NOT EXISTS note text;
 
 CREATE TABLE IF NOT EXISTS rides (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -33,3 +40,18 @@ CREATE TABLE IF NOT EXISTS bodyweight (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_bw_date ON bodyweight (date);
+
+-- Every mutation, so a misunderstood "delete my last squat" can be undone.
+-- `before` is the full row as it was (NULL for inserts); `after` is the new row
+-- (NULL for deletes). Undo replays this in reverse.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id          bigserial PRIMARY KEY,
+  at          timestamptz NOT NULL DEFAULT now(),
+  action      text NOT NULL CHECK (action IN ('insert','update','delete')),
+  entry_type  text NOT NULL,
+  entry_id    uuid,
+  before      jsonb,
+  after       jsonb,
+  undone      boolean NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log (at DESC);

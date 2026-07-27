@@ -77,6 +77,7 @@
 
   header.page { margin-bottom: 28px; }
   .head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .head-btns { display: flex; align-items: center; gap: 8px; }
   .hint { margin-top: 8px; font-size: 12px; color: var(--muted); }
   h1 { font-size: 24px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
   .sub { color: var(--text-secondary); font-size: 13px; }
@@ -118,6 +119,7 @@
   .legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
   .legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 
+  .plots > .plot + .plot { margin-top: 14px; }
   .plot { position: relative; }
   .plot svg { display: block; width: 100%; overflow: visible; }
   .grid-line { stroke: var(--grid); stroke-width: 1; }
@@ -152,6 +154,9 @@
   td { color: var(--text-secondary); }
   td:first-child { color: var(--text-primary); }
   .hidden { display: none; }
+  td.acts { padding: 3px 10px; }
+  .toggle.mini { font-size: 11px; padding: 1px 7px; }
+  .toggle.mini + .toggle.mini { margin-left: 5px; }
 
   /* add-entry panel */
   .add-text {
@@ -178,6 +183,27 @@
   .add-preview ul { list-style: none; margin: 0 0 10px; padding: 0; }
   .add-preview li { padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; margin-bottom: 6px; font-size: 13px; }
   .add-preview .warn { color: #b8860b; font-size: 12px; margin-bottom: 6px; }
+
+  .frm { display: grid; gap: 10px; margin-top: 10px;
+         grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .frm.wide { grid-template-columns: 1fr; }
+  .fld { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .fld > label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .fld input, .fld select {
+    font: inherit; font-size: 13px; width: 100%;
+    background: var(--page); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px;
+  }
+  .fld input:focus, .fld select:focus { outline: 2px solid var(--series-1); outline-offset: 1px; }
+  .fld input:disabled { opacity: .45; }
+  .fld.chk { flex-direction: row; align-items: center; gap: 6px; align-self: end; padding-bottom: 7px; }
+  .fld.chk input { width: auto; }
+  .fld.chk > span { text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--text-secondary); }
+  .sets { margin-top: 10px; }
+  .sets .shead { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .setrow { display: grid; gap: 8px; align-items: end; margin-top: 8px;
+            grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
+  .setrow .rm { align-self: end; }
 </style>
 </head>
 <body>
@@ -189,10 +215,33 @@
       <h1>Gym</h1>
       <div class="sub" id="subtitle"></div>
     </div>
-    <button class="toggle" id="logout">Log out</button>
+    <div class="head-btns">
+      <button class="toggle" id="add-open" aria-pressed="false">Add entry</button>
+      <button class="toggle" id="logout">Log out</button>
+    </div>
   </div>
-  <div class="hint">Add or edit trainings by messaging your Telegram bot.</div>
+  <div class="hint">Add or edit trainings here, or by messaging your Telegram bot.</div>
 </header>
+
+<section class="card hidden" id="c-add">
+  <div class="card-head">
+    <h2 id="add-title">Add entry</h2>
+    <button class="toggle" id="add-close">Close</button>
+  </div>
+  <div class="desc" id="add-desc">Writes straight to the database — the same fields the bot uses.</div>
+  <div class="add-row" id="add-types">
+    <button class="toggle" data-type="strength" aria-pressed="true">Strength</button>
+    <button class="toggle" data-type="ride" aria-pressed="false">Ride</button>
+    <button class="toggle" data-type="bodyweight" aria-pressed="false">Bodyweight</button>
+  </div>
+  <div id="add-fields"></div>
+  <div class="add-row">
+    <button class="btn" id="add-save">Save</button>
+    <button class="btn ghost" id="add-reset">Clear</button>
+    <button class="btn ghost hidden" id="add-delete">Delete</button>
+    <span class="add-status" id="add-status"></span>
+  </div>
+</section>
 
 <div class="tiles" id="tiles"></div>
 
@@ -208,11 +257,38 @@
     <h2>Strength progression</h2>
     <button class="toggle" data-table="strength" aria-pressed="false">Table</button>
   </div>
-  <div class="desc">Estimated 1RM per session — the best set of the day, via Epley.</div>
+  <div class="desc">The top set of each session. Bodyweight lifts have no kg to progress, so they are charted as reps on their own axis.</div>
   <div class="legend" id="l-strength"></div>
-  <div class="plot" id="p-strength"></div>
+  <div class="plots" id="p-strength">
+    <div class="plot" id="p-strength-w"></div>
+    <div class="foot hidden" id="cap-strength-r">Bodyweight lifts — top-set reps.</div>
+    <div class="plot hidden" id="p-strength-r"></div>
+  </div>
   <div class="tbl hidden" id="t-strength"></div>
-  <div class="foot">Epley: weight × (1 + reps/30). Assisted reps are excluded — only completed reps count.</div>
+  <div class="foot">Heaviest set of the day. Assisted reps are shown but excluded from the top set — only completed reps count.</div>
+</section>
+
+<section class="card" id="c-e1rm">
+  <div class="card-head">
+    <h2>Estimated 1RM</h2>
+    <button class="toggle" data-table="e1rm" aria-pressed="false">Table</button>
+  </div>
+  <div class="desc">Estimated 1RM per session — the best set of the day, via Epley. Bodyweight lifts count your bodyweight as the load, so they sit on the same kg axis.</div>
+  <div class="legend" id="l-e1rm"></div>
+  <div class="plot" id="p-e1rm"></div>
+  <div class="tbl hidden" id="t-e1rm"></div>
+  <div class="foot">Epley: load × (1 + reps/30), where an assisted rep counts as half a rep.</div>
+</section>
+
+<section class="card" id="c-vol">
+  <div class="card-head">
+    <h2>Weekly volume</h2>
+    <button class="toggle" data-table="vol" aria-pressed="false">Table</button>
+  </div>
+  <div class="desc">Tonnage lifted per week — load × reps, summed across every set.</div>
+  <div class="plot" id="p-vol"></div>
+  <div class="tbl hidden" id="t-vol"></div>
+  <div class="foot" id="f-vol"></div>
 </section>
 
 <section class="card" id="c-speed">
@@ -268,16 +344,18 @@
 /* ------------------------------------------------- data (loaded from gym.json) */
 
 // Populated by load(); render only runs after the fetch resolves.
-let STRENGTH = {};   // { key: { name, hex(), sessions:[{d,sets}] } }
+let STRENGTH = {};   // { key: { name, hex(), bw, sessions:[{id,d,sets,volume,e1rm}] } }
 let RIDES = [];
 let BODYWEIGHT = [];
+let STATS = null;    // /api/stats — only the volume block is charted
 
 const SERIES = i => () => cssv('--series-' + (((i) % 8) + 1));   // slot by declaration order
 
 function ingest(data) {
   STRENGTH = {};
   data.strength.forEach((ex, i) => {
-    STRENGTH[ex.key] = { name: ex.name, hex: SERIES(i), sessions: ex.sessions };
+    STRENGTH[ex.key] = { key: ex.key, name: ex.name, hex: SERIES(i),
+                         bw: !!ex.bodyweightLift, sessions: ex.sessions };
   });
   RIDES = data.rides;
   BODYWEIGHT = data.bodyweight;
@@ -295,6 +373,20 @@ const fdate= s => { const x = dt(s); return MON[x.getMonth()] + ' ' + x.getDate(
 const e1rm = st => st.w * (1 + st.r / 30);          // Epley, completed reps only
 const best = ss => Math.max(...ss.map(e1rm));
 const round= (v, n=1) => Math.round(v * 10**n) / 10**n;
+const esc  = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+// A set is { w, r, a?, rpe?, bw? } — bw:true means bodyweight was the load and w is added kg.
+const setLabel = s =>
+  (s.bw ? (s.w ? `BW+${s.w}kg×${s.r}` : `BW×${s.r}`) : `${s.w}kg×${s.r}`) +
+  (s.a ? `+${s.a}` : '') + (s.rpe ? ` @${s.rpe}` : '');
+const setsLabel = ss => ss.map(setLabel).join(', ');
+
+// heaviest set of a session (added kg for bodyweight lifts), and the most reps in one set
+const topSet  = ss => ss.reduce((m, s) => (!m || (s.w || 0) > (m.w || 0) ? s : m), null);
+const topReps = ss => ss.reduce((m, s) => Math.max(m, s.r), 0);
+// the server does the bodyweight/half-rep arithmetic; fall back only if it is missing
+const sessE1RM = s => s.e1rm ?? best(s.sets);
+const kgOrT = kg => kg >= 1000 ? round(kg / 1000, 1) + ' t' : round(kg, 0) + ' kg';
 const dur  = m => m >= 60 ? `${Math.floor(m/60)}h ${m%60 ? (m%60)+'min' : ''}`.trim() : `${m}min`;
 const el   = (t, c) => { const e = document.createElementNS('http://www.w3.org/2000/svg', t);
                          if (c) e.setAttribute('class', c); return e; };
@@ -353,6 +445,8 @@ function tooltip(host) {
 
 function lineChart(host, series, opts = {}) {
   host.innerHTML = '';
+  series = series.filter(s => s.pts.length);            // a series with no points has no line
+  if (!series.length) { host.innerHTML = '<div class="foot">Nothing recorded yet.</div>'; return; }
   const tip = tooltip(host);
   const W   = host.clientWidth || 640;
   const svg = attr(el('svg'), { viewBox: `0 0 ${W} ${H}`, height: H });
@@ -419,6 +513,8 @@ function lineChart(host, series, opts = {}) {
 
 function barChart(host, rows, opts = {}) {
   host.innerHTML = '';
+  if (!rows.length) { host.innerHTML = '<div class="foot">Nothing recorded yet.</div>'; return; }
+  const unit = opts.unit ?? 'km';
   const tip = tooltip(host);
   const W   = host.clientWidth || 640;
   const svg = attr(el('svg'), { viewBox: `0 0 ${W} ${H}`, height: H });
@@ -426,6 +522,7 @@ function barChart(host, rows, opts = {}) {
 
   const ticks = niceTicks(0, Math.max(...rows.map(r => r.v)), 5);
   const yMax  = ticks[ticks.length - 1];
+  const every = Math.ceil(rows.length / (opts.maxLabels || rows.length));   // thin x labels if asked
   const sy    = v => H - PAD.b - v / yMax * (H - PAD.t - PAD.b);
   const band  = (W - PAD.l - PAD.r) / rows.length;
   const bw    = Math.min(band - 2, 34);                       // 2px surface gap between bars
@@ -447,14 +544,14 @@ function barChart(host, rows, opts = {}) {
     const d = `M${xl} ${yb} L${xl} ${yt + 4} Q${xl} ${yt} ${xl + 4} ${yt} L${xr - 4} ${yt} Q${xr} ${yt} ${xr} ${yt + 4} L${xr} ${yb} Z`;
     g.appendChild(attr(el('path'), { d, fill: r.hex }));
     svg.appendChild(g);
-    svg.appendChild(Object.assign(attr(el('text', 'tick'),
+    if (i % every === 0) svg.appendChild(Object.assign(attr(el('text', 'tick'),
       { x: cx, y: H - PAD.b + 16, 'text-anchor': 'middle' }), { textContent: r.short }));
 
     const hit = attr(el('rect', 'hot'), { x: cx - band / 2, y: PAD.t, width: band, height: H - PAD.t - PAD.b });
     svg.appendChild(hit);
     hit.addEventListener('mouseenter', () => {
       tip.innerHTML = `<div class="td">${r.label}</div>` +
-        `<div class="tr"><i style="background:${r.hex}"></i>${r.group} <b>${r.v} km</b></div>` +
+        `<div class="tr"><i style="background:${r.hex}"></i>${r.group} <b>${r.vLabel ?? `${r.v} ${unit}`}</b></div>` +
         (r.extra ? `<div class="tr">${r.extra}</div>` : '') +
         (r.note ? `<div class="tn">${r.note}</div>` : '');
       tip.classList.add('on');
@@ -474,10 +571,18 @@ function legend(host, items) {
 
 /* ------------------------------------------------------------- tables */
 
+// a cell may be a plain value, or { html } for markup (the edit/delete affordances)
 function table(host, cols, rows) {
+  const cell = c => (c && typeof c === 'object' && 'html' in c)
+    ? `<td class="acts">${c.html}</td>` : `<td>${c ?? '—'}</td>`;
   host.innerHTML = `<table><thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>` +
-    `<tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c ?? '—'}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    `<tbody>${rows.map(r => `<tr>${r.map(cell).join('')}</tr>`).join('')}</tbody></table>`;
 }
+
+// per-row edit/delete, on entries the API can address by id
+const acts = (type, id) => ({ html:
+  `<button class="toggle mini" data-edit="${type}:${id}">Edit</button>` +
+  `<button class="toggle mini" data-del="${type}:${id}">Delete</button>` });
 
 /* -------------------------------------------------------------- tiles */
 
@@ -494,7 +599,10 @@ const uniqueTrainingDays = () => [...new Set([
 // heaviest working set of an exercise, for the tile note
 function heaviest(ex) {
   let top = null;
-  ex.sessions.forEach(s => s.sets.forEach(set => { if (!top || set.w > top.w) top = { w: set.w, r: set.r, d: s.d }; }));
+  ex.sessions.forEach(s => s.sets.forEach(set => {
+    if (set.bw) return;                                       // added kg isn't a "heaviest"
+    if (!top || set.w > top.w) top = { w: set.w, r: set.r, d: s.d };
+  }));
   return top;
 }
 
@@ -564,21 +672,95 @@ const excNote = (pred, what) => {
 };
 
 function renderStrength() {
-  const series = Object.values(STRENGTH).map(x => ({
+  const lifts = Object.values(STRENGTH);
+  // kg and reps can't share an axis, so bodyweight lifts get their own plot underneath
+  const kgSeries = lifts.filter(x => !x.bw).map(x => ({
     name: x.name, hex: x.hex,
-    pts: x.sessions.map(s => ({ t: dt(s.d).getTime(), v: best(s.sets),
-      label: round(best(s.sets), 1) + 'kg' }))
+    pts: x.sessions.map(s => { const t = topSet(s.sets); return {
+      t: dt(s.d).getTime(), v: t.w, label: `${t.w}kg × ${t.r}`, note: setsLabel(s.sets) }; })
   }));
-  legend(document.getElementById('l-strength'), series);
-  lineChart(document.getElementById('p-strength'), series, { yTitle: 'kg' });
+  const repSeries = lifts.filter(x => x.bw).map(x => ({
+    name: x.name + ' — reps', hex: x.hex,
+    pts: x.sessions.map(s => ({ t: dt(s.d).getTime(), v: topReps(s.sets),
+      label: topReps(s.sets) + ' reps', note: setsLabel(s.sets) }))
+  }));
+
+  legend(document.getElementById('l-strength'), lifts.map(x => ({
+    hex: x.hex, name: x.bw ? `${x.name} (bodyweight) — reps` : x.name })));
+  const hasKg = kgSeries.some(s => s.pts.length);
+  document.getElementById('p-strength-w').classList.toggle('hidden', !hasKg);
+  if (hasKg) lineChart(document.getElementById('p-strength-w'), kgSeries, { yTitle: 'kg' });
+  const hasReps = repSeries.some(s => s.pts.length);
+  document.getElementById('cap-strength-r').classList.toggle('hidden', !hasReps);
+  document.getElementById('p-strength-r').classList.toggle('hidden', !hasReps);
+  if (hasReps) lineChart(document.getElementById('p-strength-r'), repSeries, { yTitle: 'reps' });
 
   const rows = [];
-  Object.values(STRENGTH).forEach(x => x.sessions.forEach(s => rows.push([
-    fdate(s.d), x.name,
-    s.sets.map(t => `${t.w}kg × ${t.r}${t.a ? ` + ${t.a} assisted` : ''}`).join(', '),
-    round(best(s.sets), 1) + 'kg',
+  lifts.forEach(x => x.sessions.forEach(s => rows.push([
+    fdate(s.d), x.bw ? `${x.name} (bodyweight)` : x.name,
+    setsLabel(s.sets),
+    x.bw ? topReps(s.sets) + ' reps' : topSet(s.sets).w + 'kg',
+    acts('strength', s.id),
   ])));
-  table(document.getElementById('t-strength'), ['Date', 'Exercise', 'Sets', 'Est. 1RM'], rows);
+  table(document.getElementById('t-strength'), ['Date', 'Exercise', 'Sets', 'Top set', ''], rows);
+}
+
+function renderE1RM() {
+  const lifts = Object.values(STRENGTH);
+  const series = lifts.map(x => ({
+    name: x.name, hex: x.hex,
+    pts: x.sessions.map(s => ({ t: dt(s.d).getTime(), v: sessE1RM(s),
+      label: round(sessE1RM(s), 1) + 'kg', note: setsLabel(s.sets) }))
+  }));
+  legend(document.getElementById('l-e1rm'), lifts.map(x => ({
+    hex: x.hex, name: x.bw ? `${x.name} (bodyweight)` : x.name })));
+  lineChart(document.getElementById('p-e1rm'), series, { yTitle: 'kg' });
+
+  const rows = [];
+  lifts.forEach(x => x.sessions.forEach(s => rows.push([
+    fdate(s.d), x.bw ? `${x.name} (bodyweight)` : x.name,
+    setsLabel(s.sets),
+    round(sessE1RM(s), 1) + 'kg',
+    s.volume != null ? kgOrT(s.volume) : null,
+    acts('strength', s.id), s.d,
+  ])));
+  rows.sort((a, b) => b.at(-1).localeCompare(a.at(-1)));
+  table(document.getElementById('t-e1rm'), ['Date', 'Exercise', 'Sets', 'Est. 1RM', 'Volume', ''],
+    rows.map(r => r.slice(0, -1)));
+}
+
+function renderVolume() {
+  const weeks = STATS?.volume?.perWeek || [];
+  const host  = document.getElementById('p-vol');
+  const foot  = document.getElementById('f-vol');
+  if (!weeks.length) {
+    host.innerHTML = '<div class="foot">No strength volume in the window.</div>';
+    table(document.getElementById('t-vol'), ['Week', 'Volume'], []);
+    foot.textContent = '';
+    return;
+  }
+  // tonnes once the bars run into four figures — 6.2 reads better than 6200
+  const useT = Math.max(...weeks.map(w => w.volumeKg)) >= 2000;
+  const hex  = cssv('--series-1');
+  const rows = weeks.map(w => ({
+    v: useT ? round(w.volumeKg / 1000, 2) : round(w.volumeKg, 0),
+    short: fdate(w.week), label: 'Week of ' + fdate(w.week),
+    group: 'Volume', vLabel: kgOrT(w.volumeKg), hex,
+  }));
+  barChart(host, rows, { yTitle: useT ? 't' : 'kg', unit: useT ? 't' : 'kg', maxLabels: 12 });
+
+  const prev = i => (i ? weeks[i - 1].volumeKg : null);
+  table(document.getElementById('t-vol'), ['Week', 'Volume', 'vs prev week'],
+    weeks.map((w, i) => [fdate(w.week), kgOrT(w.volumeKg),
+      prev(i) ? (w.volumeKg >= prev(i) ? '+' : '−') + kgOrT(Math.abs(w.volumeKg - prev(i))) : null]));
+
+  const v = STATS.volume;
+  const top = v.perExercise?.[0];
+  foot.textContent =
+    `${kgOrT(v.totalKg)} lifted across ${weeks.length} week${weeks.length > 1 ? 's' : ''}` +
+    (v.from ? ` (${fdate(v.from)} – ${fdate(v.to)})` : '') +
+    (top ? ` · most of it ${top.exercise}, ${kgOrT(top.volumeKg)}.` : '.') +
+    ' Bodyweight lifts count your bodyweight as the load, and an assisted rep as half a rep.';
 }
 
 function renderSpeed() {
@@ -589,9 +771,9 @@ function renderSpeed() {
   }));
   legend(document.getElementById('l-speed'), series);
   lineChart(document.getElementById('p-speed'), series, { yTitle: 'km/h' });
-  table(document.getElementById('t-speed'), ['Date', 'Where', 'Speed', 'Duration', 'Distance'],
+  table(document.getElementById('t-speed'), ['Date', 'Where', 'Speed', 'Duration', 'Distance', ''],
     RIDES.filter(r => r.kmh).map(r => [fdate(r.d), LOC[r.loc].name, r.kmh + ' km/h', dur(r.min),
-      r.km ? r.km + ' km' : null]));
+      r.km ? r.km + ' km' : null, acts('ride', r.id)]));
   document.getElementById('f-speed').textContent = excNote(r => !r.kmh, 'speed');
 }
 
@@ -602,8 +784,9 @@ function renderDist() {
     extra: `${dur(r.min)} · ${r.kmh} km/h`, note: r.note }));
   legend(document.getElementById('l-dist'), Object.values(LOC));
   barChart(document.getElementById('p-dist'), rows, { yTitle: 'km' });
-  table(document.getElementById('t-dist'), ['Date', 'Where', 'Distance', 'Duration', 'Speed'],
-    RIDES.filter(r => r.km).map(r => [fdate(r.d), LOC[r.loc].name, r.km + ' km', dur(r.min), r.kmh + ' km/h']));
+  table(document.getElementById('t-dist'), ['Date', 'Where', 'Distance', 'Duration', 'Speed', ''],
+    RIDES.filter(r => r.km).map(r => [fdate(r.d), LOC[r.loc].name, r.km + ' km', dur(r.min),
+      r.kmh + ' km/h', acts('ride', r.id)]));
   document.getElementById('f-dist').textContent = excNote(r => !r.km, 'distance');
 }
 
@@ -615,9 +798,9 @@ function renderHR() {
   }));
   legend(document.getElementById('l-hr'), series);
   lineChart(document.getElementById('p-hr'), series, { yTitle: 'bpm' });
-  table(document.getElementById('t-hr'), ['Date', 'Where', 'Avg HR', 'Speed', 'Duration'],
+  table(document.getElementById('t-hr'), ['Date', 'Where', 'Avg HR', 'Speed', 'Duration', ''],
     RIDES.filter(r => r.bpm).map(r => [fdate(r.d), LOC[r.loc].name, r.bpm + ' bpm',
-      r.kmh ? r.kmh + ' km/h' : null, dur(r.min)]));
+      r.kmh ? r.kmh + ' km/h' : null, dur(r.min), acts('ride', r.id)]));
   document.getElementById('f-hr').textContent = excNote(r => !r.bpm, 'heart rate');
 }
 
@@ -625,7 +808,8 @@ function renderBW() {
   const series = [{ name: 'Bodyweight', hex: () => cssv('--series-1'),
     pts: BODYWEIGHT.map(b => ({ t: dt(b.d).getTime(), v: b.kg, label: b.kg + 'kg' })) }];
   lineChart(document.getElementById('p-bw'), series, { yTitle: 'kg' });
-  table(document.getElementById('t-bw'), ['Date', 'Bodyweight'], BODYWEIGHT.map(b => [fdate(b.d), b.kg + ' kg']));
+  table(document.getElementById('t-bw'), ['Date', 'Bodyweight', ''],
+    BODYWEIGHT.map(b => [fdate(b.d), b.kg + ' kg', acts('bodyweight', b.id)]));
 }
 
 function renderAll() {
@@ -635,20 +819,35 @@ function renderAll() {
   document.getElementById('subtitle').textContent =
     `${days.length} sessions · ${fdate(days[0])} – ${fdate(days.at(-1))}, ${new Date(X1).getFullYear()}`;
   renderTiles(); renderCadence();
-  renderStrength(); renderSpeed(); renderDist(); renderHR(); renderBW();
+  renderStrength(); renderE1RM(); renderVolume();
+  renderSpeed(); renderDist(); renderHR(); renderBW();
+}
+
+/* --------------------------------------------------------------- transport */
+
+// every call goes through here so the 401 → /login redirect is never forgotten
+async function api(url, opts = {}) {
+  const res = await fetch(url, { cache: 'no-store', ...opts });
+  if (res.status === 401) { location.href = '/login'; throw new Error('Signed out.'); }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  return body;
 }
 
 async function load() {
-  const res = await fetch('/api/data', { cache: 'no-store' });
-  if (res.status === 401) { location.href = '/login'; return; }
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
-  ingest(await res.json());
+  const [data, stats] = await Promise.all([
+    api('/api/data'),
+    api('/api/stats').catch(() => null),      // stats only feeds the volume card
+  ]);
+  ingest(data);
+  STATS = stats;
   renderAll();
 }
-load().catch(err => {
+const boot = () => load().catch(err => {
   document.getElementById('tiles').innerHTML =
-    `<div class="tile"><div class="k">Couldn’t load data</div><div class="n">${err.message}</div></div>`;
+    `<div class="tile"><div class="k">Couldn’t load data</div><div class="n">${esc(err.message)}</div></div>`;
 });
+boot();
 
 document.getElementById('logout').addEventListener('click', async () => {
   await fetch('/api/logout', { method: 'POST' });
@@ -667,6 +866,299 @@ document.querySelectorAll('[data-table]').forEach(btn => {
     const lg = document.getElementById('l-' + k);
     if (lg) lg.classList.toggle('hidden', !on);
   });
+});
+
+/* ------------------------------------------------------- add / edit panel */
+
+/* POST   /api/entry              { type, ...fields }
+   PATCH  /api/entry/:type/:id    { ...fields }
+   DELETE /api/entry/:type/:id
+   Field names are exactly the ones db.addStrength / addRide / addBodyweight take. */
+
+const $ = id => document.getElementById(id);
+const val = id => ($(id) ? $(id).value : '');
+const nval = v => (v === '' || v == null || !Number.isFinite(+v) ? null : +v);
+const todayStr = () => new Date().toLocaleDateString('en-CA');
+
+let addType = 'strength';
+let editing = null;                 // { type, id } while editing an existing entry
+let setSeq = 0;
+
+const fldNum = (id, label, extra = '') =>
+  `<div class="fld"><label for="${id}">${label}</label>
+     <input id="${id}" type="number" inputmode="decimal" ${extra}></div>`;
+
+function setRowHTML(s = {}) {
+  const n = ++setSeq;
+  const bw = !!(s.bw ?? s.bodyweight);
+  return `<div class="setrow" data-row="${n}">
+    <div class="fld"><label class="wlabel">${bw ? 'Added kg' : 'Weight kg'}</label>
+      <input type="number" step="0.5" inputmode="decimal" data-k="weightKg"
+             placeholder="${bw ? '0' : ''}" value="${s.w ?? ''}"></div>
+    <div class="fld"><label>Reps</label>
+      <input type="number" step="1" inputmode="numeric" data-k="reps" value="${s.r ?? ''}"></div>
+    <div class="fld"><label>Assisted</label>
+      <input type="number" step="1" inputmode="numeric" data-k="assistedReps" value="${s.a ?? ''}"></div>
+    <div class="fld"><label>RPE</label>
+      <input type="number" step="0.5" min="1" max="10" inputmode="decimal" data-k="rpe" value="${s.rpe ?? ''}"></div>
+    <label class="fld chk"><input type="checkbox" data-k="bodyweight"${bw ? ' checked' : ''}><span>Bodyweight</span></label>
+    <div class="rm"><button class="toggle mini" data-rmset="${n}">Remove</button></div>
+  </div>`;
+}
+
+const addSetRow = (s) => $('set-rows').insertAdjacentHTML('beforeend', setRowHTML(s));
+
+function fieldsHTML(type) {
+  const d = todayStr();
+  if (type === 'strength') {
+    const opts = Object.values(STRENGTH)
+      .map(x => `<option value="${esc(x.key)}">${esc(x.name)}</option>`).join('');
+    return `<div class="frm">
+        <div class="fld"><label for="f-date">Date</label><input id="f-date" type="date" value="${d}"></div>
+        <div class="fld"><label for="f-ex">Exercise</label>
+          <input id="f-ex" list="ex-list" placeholder="bench" autocomplete="off">
+          <datalist id="ex-list">${opts}</datalist></div>
+        <div class="fld"><label for="f-exname">Display name</label>
+          <input id="f-exname" placeholder="Bench press" autocomplete="off"></div>
+      </div>
+      <div class="frm wide">
+        <div class="fld"><label for="f-short">Shorthand — fills the rows below</label>
+          <input id="f-short" placeholder="70x10 75x8 bw+10x6 80x8@8" autocomplete="off"></div>
+        <div class="fld"><label for="f-note">Note</label><input id="f-note" autocomplete="off"></div>
+      </div>
+      <div class="sets"><div class="shead">Sets</div><div id="set-rows"></div>
+        <div class="add-row"><button class="toggle" id="set-add">Add set</button></div>
+      </div>`;
+  }
+  if (type === 'ride') {
+    return `<div class="frm">
+        <div class="fld"><label for="f-date">Date</label><input id="f-date" type="date" value="${d}"></div>
+        <div class="fld"><label for="f-loc">Where</label>
+          <select id="f-loc"><option value="indoors">Indoors</option><option value="outdoors">Outdoors</option></select></div>
+        ${fldNum('f-min', 'Duration min', 'step="1"')}
+        ${fldNum('f-km', 'Distance km', 'step="0.1"')}
+        ${fldNum('f-kmh', 'Speed km/h', 'step="0.1"')}
+        ${fldNum('f-bpm', 'Avg HR', 'step="1"')}
+        ${fldNum('f-watts', 'Avg watts', 'step="1"')}
+        ${fldNum('f-rpm', 'Avg cadence', 'step="1"')}
+      </div>
+      <div class="frm wide"><div class="fld"><label for="f-note">Note</label><input id="f-note" autocomplete="off"></div></div>`;
+  }
+  return `<div class="frm">
+      <div class="fld"><label for="f-date">Date</label><input id="f-date" type="date" value="${d}"></div>
+      ${fldNum('f-kg', 'Weight kg', 'step="0.1"')}
+    </div>`;
+}
+
+// "70x10 75x8 bw+10x6 80x7.5@8" — half a rep is this project's shorthand for one assisted rep
+function parseShorthand(txt) {
+  const out = [];
+  for (const tok of String(txt).trim().split(/[\s,]+/).filter(Boolean)) {
+    const m = /^(bw)?(?:\+?(\d+(?:\.\d+)?))?(?:kg)?[x×](\d+(?:\.\d+)?)(?:@(\d+(?:\.\d+)?))?$/i.exec(tok);
+    if (!m) continue;
+    const bw = !!m[1];
+    const w = m[2] == null ? (bw ? 0 : null) : +m[2];
+    if (w == null) continue;
+    const reps = +m[3];
+    const s = { w, r: Math.floor(reps), bw };
+    if (reps % 1) s.a = 1;
+    if (m[4]) s.rpe = +m[4];
+    out.push(s);
+  }
+  return out;
+}
+
+function renderFields(type, prefill) {
+  $('add-fields').innerHTML = fieldsHTML(type);
+  if (type === 'strength') {
+    $('set-add').addEventListener('click', () => addSetRow());
+    $('f-short').addEventListener('change', ev => {
+      const sets = parseShorthand(ev.target.value);
+      if (!sets.length) return;
+      $('set-rows').innerHTML = '';
+      sets.forEach(addSetRow);
+      ev.target.value = '';
+      setStatus('Filled ' + sets.length + ' set' + (sets.length > 1 ? 's' : '') + ' from shorthand.');
+    });
+    (prefill?.sets?.length ? prefill.sets : [{}]).forEach(addSetRow);
+    if (prefill) {
+      $('f-date').value = prefill.d;
+      $('f-ex').value = prefill.ex.key;
+      $('f-exname').value = prefill.ex.name;
+      $('f-note').value = prefill.note || '';
+    }
+  } else if (type === 'ride' && prefill) {
+    $('f-date').value = prefill.d;
+    $('f-loc').value = prefill.loc === 'out' ? 'outdoors' : 'indoors';
+    $('f-min').value = prefill.min ?? '';
+    $('f-km').value = prefill.km ?? '';
+    $('f-kmh').value = prefill.kmh ?? '';
+    $('f-bpm').value = prefill.bpm ?? '';
+    $('f-watts').value = prefill.w ?? '';
+    $('f-rpm').value = prefill.rpm ?? '';
+    $('f-note').value = prefill.note || '';
+  } else if (type === 'bodyweight' && prefill) {
+    $('f-date').value = prefill.d;
+    $('f-kg').value = prefill.kg ?? '';
+  }
+}
+
+function collect(type) {
+  const date = val('f-date');
+  if (!date) throw new Error('Pick a date.');
+  if (type === 'strength') {
+    const exercise = val('f-ex').trim();
+    if (!exercise) throw new Error('Which exercise?');
+    const sets = [...document.querySelectorAll('#set-rows .setrow')].map(row => {
+      const g = k => row.querySelector(`[data-k="${k}"]`);
+      const bodyweight = g('bodyweight').checked;
+      const reps = nval(g('reps').value);
+      const w = nval(g('weightKg').value);
+      if (reps == null || (!bodyweight && w == null)) return null;
+      const s = { weightKg: bodyweight ? (w ?? 0) : w, reps, bodyweight };
+      const a = nval(g('assistedReps').value); if (a) s.assistedReps = a;
+      const rpe = nval(g('rpe').value);        if (rpe) s.rpe = rpe;
+      return s;
+    }).filter(Boolean);
+    if (!sets.length) throw new Error('Every set needs reps, and a weight unless it is a bodyweight lift.');
+    return { date, exercise, exerciseName: val('f-exname').trim() || exercise, sets,
+             note: val('f-note').trim() || null };
+  }
+  if (type === 'ride') {
+    return { date, location: val('f-loc'), durationMin: nval(val('f-min')), distanceKm: nval(val('f-km')),
+             speedKmh: nval(val('f-kmh')), avgHr: nval(val('f-bpm')), avgWatts: nval(val('f-watts')),
+             avgCadence: nval(val('f-rpm')), note: val('f-note').trim() || null };
+  }
+  const weightKg = nval(val('f-kg'));
+  if (weightKg == null) throw new Error('Enter a weight in kg.');
+  return { date, weightKg };
+}
+
+function setStatus(msg, isErr) {
+  const s = $('add-status');
+  s.className = 'add-status' + (isErr ? ' err' : '');
+  s.textContent = msg || '';
+}
+
+const TYPE_NAME = { strength: 'strength session', ride: 'ride', bodyweight: 'bodyweight reading' };
+
+function openPanel(type, edit, prefill) {
+  addType = type;
+  editing = edit || null;
+  $('c-add').classList.remove('hidden');
+  $('add-open').setAttribute('aria-pressed', 'true');
+  $('add-title').textContent = editing ? 'Edit entry' : 'Add entry';
+  $('add-desc').textContent = editing
+    ? `Editing a ${TYPE_NAME[type]} — saving overwrites it, and any optional field you blank is cleared.`
+    : 'Writes straight to the database — the same fields the bot uses.';
+  $('add-save').textContent = editing ? 'Save changes' : 'Save';
+  $('add-delete').classList.toggle('hidden', !editing);
+  document.querySelectorAll('#add-types [data-type]').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.type === type)));
+  renderFields(type, prefill);
+  setStatus('');
+  $('c-add').scrollIntoView({ block: 'nearest' });
+}
+
+function closePanel() {
+  $('c-add').classList.add('hidden');
+  $('add-open').setAttribute('aria-pressed', 'false');
+  editing = null;
+}
+
+// entries are already in memory with their ids — no extra round-trip to prefill
+function findEntry(type, id) {
+  if (type === 'ride') return RIDES.find(r => String(r.id) === id);
+  if (type === 'bodyweight') return BODYWEIGHT.find(b => String(b.id) === id);
+  for (const x of Object.values(STRENGTH)) {
+    const s = x.sessions.find(s => String(s.id) === id);
+    if (s) return { ...s, ex: x };
+  }
+  return null;
+}
+
+const JSONH = { 'Content-Type': 'application/json' };
+
+async function save() {
+  const btn = $('add-save');
+  let fields;
+  try { fields = collect(addType); }
+  catch (e) { return setStatus(e.message, true); }
+
+  btn.disabled = true;
+  setStatus('Saving…');
+  try {
+    if (editing) {
+      await api(`/api/entry/${editing.type}/${editing.id}`,
+        { method: 'PATCH', headers: JSONH, body: JSON.stringify(fields) });
+    } else {
+      await api('/api/entry',
+        { method: 'POST', headers: JSONH, body: JSON.stringify({ type: addType, ...fields }) });
+    }
+    const was = editing;
+    await load();                                   // re-fetch rather than patch local state
+    if (!was) openPanel(addType);                   // fresh, empty form for the next one
+    setStatus(was ? `Saved — ${TYPE_NAME[addType]} updated.` : `Saved — ${TYPE_NAME[addType]} added.`);
+  } catch (e) {
+    setStatus(e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function removeEntry(type, id, note) {
+  if (!confirm(`Delete this ${TYPE_NAME[type]}${note ? ` (${note})` : ''}? This can be undone from the bot.`)) return;
+  try {
+    await api(`/api/entry/${type}/${id}`, { method: 'DELETE' });
+    if (editing && editing.type === type && String(editing.id) === String(id)) closePanel();
+    await load();
+    setStatus('');
+  } catch (e) {
+    $('c-add').classList.remove('hidden');
+    setStatus(`Couldn’t delete: ${e.message}`, true);
+  }
+}
+
+$('add-open').addEventListener('click', () =>
+  $('c-add').classList.contains('hidden') ? openPanel(addType) : closePanel());
+$('add-close').addEventListener('click', closePanel);
+$('add-save').addEventListener('click', save);
+$('add-reset').addEventListener('click', () => openPanel(addType));
+$('add-delete').addEventListener('click', () => editing && removeEntry(editing.type, editing.id));
+document.querySelectorAll('#add-types [data-type]').forEach(b =>
+  b.addEventListener('click', () => openPanel(b.dataset.type)));
+
+// a bodyweight set loads your own weight, so the kg box means *added* kg
+document.addEventListener('change', ev => {
+  const box = ev.target.closest?.('[data-k="bodyweight"]');
+  if (!box) return;
+  const row = box.closest('.setrow');
+  row.querySelector('.wlabel').textContent = box.checked ? 'Added kg' : 'Weight kg';
+  const w = row.querySelector('[data-k="weightKg"]');
+  w.placeholder = box.checked ? '0' : '';
+});
+
+// the per-row affordances in the data tables are re-rendered on every load, so delegate
+document.addEventListener('click', ev => {
+  if (!ev.target.closest) return;
+  const e = ev.target.closest('[data-edit]'), d = ev.target.closest('[data-del]');
+  const r = ev.target.closest('[data-rmset]');
+  if (r) {
+    const rows = document.querySelectorAll('#set-rows .setrow');
+    if (rows.length > 1) r.closest('.setrow').remove();
+    return;
+  }
+  if (e) {
+    const [type, id] = e.dataset.edit.split(':');
+    const entry = findEntry(type, id);
+    if (!entry) return setStatus('That entry is no longer loaded — reload the page.', true);
+    openPanel(type, { type, id }, entry);
+  }
+  if (d) {
+    const [type, id] = d.dataset.del.split(':');
+    const entry = findEntry(type, id);
+    removeEntry(type, id, entry ? fdate(entry.d) : '');
+  }
 });
 
 let rt;

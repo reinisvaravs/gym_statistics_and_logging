@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import * as db from './db.js';
+import { today, timezone } from './time.js';
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
@@ -9,12 +10,18 @@ workouts and asks questions in plain language; you call tools to add, edit, dele
 in their database, then reply with a short, friendly confirmation.
 
 Data model:
-- STRENGTH sessions: a weighted lift (bench, squat, lat pulldown, deadlift, overhead press, row, ...)
-  on a date, with sets. Each set has weightKg, reps, and assistedReps (reps a spotter helped finish —
-  the owner writes these as a half rep, e.g. "70x7.5" = 7 reps + 1 assisted).
+- STRENGTH sessions: a lift (bench, squat, lat pulldown, deadlift, overhead press, row, pull-ups, dips, ...)
+  on a date, with sets. Each set has reps (required) plus:
+  - weightKg — the load. Required for ordinary weighted lifts.
+  - bodyweight — set TRUE for lifts where the owner's own body is the load (pull-ups, chin-ups, dips,
+    push-ups). Then weightKg means *added* weight only: 0 or omitted for unweighted, 10 for "pull-ups +10kg".
+    Never invent a weightKg for a bodyweight exercise — "pull-ups 9 reps" is bodyweight:true, reps:9.
+  - assistedReps — reps a spotter helped finish; the owner writes these as a half rep ("70x7.5" = 7 + 1 assisted).
+  - rpe — optional 1-10 effort rating ("70x8 @8", "felt like a 9").
+  A session can also carry a free-text note ("felt heavy", "back tweaked") — never numbers already captured above.
 - RIDE: cycling, indoors or outdoors (different bikes; wind resistance outdoors). Fields: durationMin,
   distanceKm, speedKmh, avgHr, avgWatts, avgCadence, note. A plain "bike" with only a duration is indoors.
-- BODYWEIGHT: an occasional scale reading in kg.
+- BODYWEIGHT: an occasional scale reading in kg. This is the SCALE, not a bodyweight exercise — don't confuse them.
 
 Unit rules when reading messages: "24km"=distance, "23km/h"=speed, "130bpm"=heart rate, "163W"=watts,
 "84rpm"=cadence, "1h 15min"=75 minutes. Never put a measured value into a note.
@@ -22,18 +29,27 @@ Unit rules when reading messages: "24km"=distance, "23km/h"=speed, "130bpm"=hear
 Guidance:
 - Resolve relative dates ("today", "yesterday") using the CURRENT DATE given to you. Format YYYY-MM-DD.
 - To edit or delete, FIRST call find_entries to get the exact entry id, then call update_entry/delete_entry with that id. Never guess ids.
-- Canonical exercise keys are lowercase, no spaces: bench, squat, pulldown, deadlift, ohp, row.
+- If the owner says they made a mistake, or asks to undo/revert the last thing, call undo_last rather than
+  reconstructing the change by hand.
+- For "what should I do today?" or "what's next on bench?", call suggest_next. For "how did this week go?",
+  call get_weekly_summary. For tonnage questions, get_volume. For a lift's history, get_exercise_series.
+- Canonical exercise keys are lowercase, no spaces: bench, squat, pulldown, deadlift, ohp, row, pullups, dips.
 - Keep replies to one or two lines. Confirm what changed. If a request is ambiguous, ask a brief question instead of guessing.`;
 
 const TOOLS = [
   { type: 'function', function: { name: 'add_strength',
-    description: 'Add a weighted-lift session.',
+    description: 'Add a strength session (weighted or bodyweight).',
     parameters: { type: 'object', required: ['date', 'exercise', 'sets'], properties: {
       date: { type: 'string', description: 'YYYY-MM-DD' },
-      exercise: { type: 'string', description: 'canonical key: bench, squat, pulldown, deadlift, ohp, row' },
+      exercise: { type: 'string', description: 'canonical key: bench, squat, pulldown, deadlift, ohp, row, pullups, dips' },
       exerciseName: { type: 'string', description: 'display name, e.g. "Bench press"' },
-      sets: { type: 'array', items: { type: 'object', required: ['weightKg', 'reps'], properties: {
-        weightKg: { type: 'number' }, reps: { type: 'integer' }, assistedReps: { type: 'integer' } } } },
+      note: { type: 'string', description: 'optional free-text note; never a measured value' },
+      sets: { type: 'array', items: { type: 'object', required: ['reps'], properties: {
+        reps: { type: 'integer' },
+        weightKg: { type: 'number', description: 'load in kg; when bodyweight is true this is ADDED weight only (omit or 0 for unweighted)' },
+        bodyweight: { type: 'boolean', description: 'true for pull-ups, dips, push-ups etc. where the body is the load' },
+        assistedReps: { type: 'integer' },
+        rpe: { type: 'number', description: 'optional 1-10 rating of perceived exertion' } } } },
     } } } },
   { type: 'function', function: { name: 'add_ride',
     description: 'Add a cycling session.',
@@ -61,8 +77,26 @@ const TOOLS = [
     parameters: { type: 'object', required: ['type', 'id'], properties: {
       type: { type: 'string', enum: ['strength', 'ride', 'bodyweight'] }, id: { type: 'string' } } } } },
   { type: 'function', function: { name: 'get_statistics',
-    description: 'Return computed stats: PRs/estimated 1RMs per lift, cycling totals and average speeds, latest bodyweight.',
+    description: 'Return computed stats: PRs/estimated 1RMs per lift, days since each lift, cycling totals and average speeds, latest bodyweight, recent volume.',
     parameters: { type: 'object', properties: {} } } },
+  { type: 'function', function: { name: 'undo_last',
+    description: 'Reverse the most recent add/edit/delete. Use when the owner says that was wrong, undo that, or put it back.',
+    parameters: { type: 'object', properties: {} } } },
+  { type: 'function', function: { name: 'get_volume',
+    description: 'Total kg lifted (tonnage) over a date range, per exercise and per week.',
+    parameters: { type: 'object', properties: {
+      from: { type: 'string', description: 'YYYY-MM-DD' }, to: { type: 'string', description: 'YYYY-MM-DD' } } } } },
+  { type: 'function', function: { name: 'get_exercise_series',
+    description: 'One lift over time: estimated 1RM, top set and volume per session.',
+    parameters: { type: 'object', required: ['exercise'], properties: {
+      exercise: { type: 'string', description: 'canonical exercise key' } } } } },
+  { type: 'function', function: { name: 'get_weekly_summary',
+    description: 'This week vs last week: training days, sessions, tonnage, rides, and any PRs set this week.',
+    parameters: { type: 'object', properties: {} } } },
+  { type: 'function', function: { name: 'suggest_next',
+    description: 'Progressive-overload suggestion for one lift, derived from the owner\'s own last session.',
+    parameters: { type: 'object', required: ['exercise'], properties: {
+      exercise: { type: 'string', description: 'canonical exercise key' } } } } },
 ];
 
 async function runTool(name, args) {
@@ -74,15 +108,20 @@ async function runTool(name, args) {
     case 'update_entry':   return db.updateEntry(args);
     case 'delete_entry':   return db.deleteEntry(args);
     case 'get_statistics': return db.getStatistics();
+    case 'undo_last':      return db.undoLast();
+    case 'get_volume':     return db.getVolume(args);
+    case 'get_exercise_series': return db.getExerciseSeries(args.exercise);
+    case 'get_weekly_summary':  return db.getWeeklySummary();
+    case 'suggest_next':   return db.suggestNext(args.exercise);
     default: throw new Error(`unknown tool ${name}`);
   }
 }
 
 // Process one user message; returns { reply, changed }.
-export async function handleMessage(text, today) {
+export async function handleMessage(text, date = today()) {
   const messages = [
     { role: 'system', content: SYSTEM },
-    { role: 'system', content: `CURRENT DATE: ${today}` },
+    { role: 'system', content: `CURRENT DATE: ${date} (timezone ${timezone})` },
     { role: 'user', content: text },
   ];
   let changed = false;
@@ -99,7 +138,7 @@ export async function handleMessage(text, today) {
       try {
         const args = JSON.parse(call.function.arguments || '{}');
         result = await runTool(call.function.name, args);
-        if (/^(add_|update_|delete_)/.test(call.function.name)) changed = true;
+        if (/^(add_|update_|delete_|undo_)/.test(call.function.name)) changed = true;
       } catch (e) {
         result = { error: String(e.message || e) };
       }

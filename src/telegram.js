@@ -1,4 +1,6 @@
 import { handleMessage } from './ai.js';
+import { today } from './time.js';
+import { downloadTelegramFile, extractFromImage, transcribeAudio } from './media.js';
 
 const TOKEN   = process.env.TELEGRAM_BOT_TOKEN || '';
 const ALLOWED = (process.env.ALLOWED_TELEGRAM_USER_ID || '').trim();
@@ -22,11 +24,22 @@ export async function registerWebhook(publicUrl, secret) {
   return url;
 }
 
+// Pick the attachment we know how to read, if any.
+function attachmentOf(msg) {
+  if (msg.photo?.length) return { kind: 'image', fileId: msg.photo[msg.photo.length - 1].file_id, mime: 'image/jpeg' };
+  if (msg.document?.mime_type?.startsWith('image/')) return { kind: 'image', fileId: msg.document.file_id, mime: msg.document.mime_type };
+  if (msg.voice) return { kind: 'audio', fileId: msg.voice.file_id, mime: msg.voice.mime_type || 'audio/ogg' };
+  if (msg.audio) return { kind: 'audio', fileId: msg.audio.file_id, mime: msg.audio.mime_type || 'audio/mpeg' };
+  return null;
+}
+
 // Handle one Telegram update. `onChange` is called after any data mutation so the
 // caller can e.g. log it. Returns nothing; replies are sent directly to the chat.
 export async function handleUpdate(update, { onChange } = {}) {
   const msg = update?.message;
-  if (!msg?.text) return;
+  if (!msg) return;
+  const attachment = attachmentOf(msg);
+  if (!msg.text && !attachment) return;
   const chatId = msg.chat.id;
   const fromId = String(msg.from?.id ?? '');
 
@@ -37,16 +50,45 @@ export async function handleUpdate(update, { onChange } = {}) {
   }
   if (fromId !== ALLOWED) return;   // silently ignore everyone else
 
-  if (msg.text.trim() === '/start') {
-    await sendMessage(chatId, 'Ready. Send a workout ("bench 70x10 75x8 today") or ask a question ("what\'s my squat PR?").');
+  if (msg.text?.trim() === '/start') {
+    await sendMessage(chatId, 'Ready. Send a workout ("bench 70x10 75x8 today") or ask a question ("what\'s my squat PR?"). You can also send a voice note, or a photo of your bike computer or a machine display.');
     return;
   }
 
+  // Media is turned into plain text first, then goes through the same path as typing it.
+  let text = msg.text;
+  let prefix = '';
+  if (attachment) {
+    try {
+      await sendMessage(chatId, attachment.kind === 'image' ? 'Reading the photo...' : 'Listening...');
+      const { buffer } = await downloadTelegramFile(attachment.fileId);
+      if (attachment.kind === 'image') {
+        const extracted = await extractFromImage(buffer, attachment.mime, msg.caption);
+        if (!extracted) {
+          await sendMessage(chatId, "I couldn't find any workout data in that photo. Try a closer shot, or just type it.");
+          return;
+        }
+        text = msg.caption ? `${extracted}\n\nCaption: ${msg.caption}` : extracted;
+        prefix = `Read: ${extracted}\n`;
+      } else {
+        const transcript = await transcribeAudio(buffer, attachment.mime);
+        if (!transcript) {
+          await sendMessage(chatId, "I couldn't make out anything in that recording — try again or type it.");
+          return;
+        }
+        text = transcript;
+        prefix = `Heard: ${transcript}\n`;
+      }
+    } catch (e) {
+      await sendMessage(chatId, `Sorry, I couldn't read that: ${e.message}`);
+      return;
+    }
+  }
+
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    const { reply, changed } = await handleMessage(msg.text, today);
+    const { reply, changed } = await handleMessage(text, today());
     if (changed && onChange) onChange();
-    await sendMessage(chatId, reply);
+    await sendMessage(chatId, prefix + reply);
   } catch (e) {
     await sendMessage(chatId, `Something went wrong: ${e.message}`);
   }

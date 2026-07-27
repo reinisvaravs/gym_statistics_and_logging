@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import * as db from './db.js';
 import { checkLogin, setSessionCookie, clearSessionCookie, requireAuth } from './auth.js';
 import { handleUpdate, registerWebhook } from './telegram.js';
+import { startDigestScheduler } from './digest.js';
 import { seedFromFile } from '../scripts/seed.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -43,15 +44,40 @@ app.post('/telegram/webhook', (req, res) => {
 
 /* ----------------------------------------------------- protected data + app */
 
-app.get('/api/data', requireAuth, async (_req, res) => {
-  try { res.json(await db.assembleData()); }
-  catch (e) { res.status(500).json({ error: e.message }); }
-});
+// Wrap a handler so every route reports errors the same way.
+const api = fn => async (req, res) => {
+  try {
+    const out = await fn(req);
+    if (out == null) return res.status(404).json({ error: 'not found' });
+    res.json(out);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+};
 
-app.get('/api/stats', requireAuth, async (_req, res) => {
-  try { res.json(await db.getStatistics()); }
-  catch (e) { res.status(500).json({ error: e.message }); }
-});
+app.get('/api/data',  requireAuth, api(req => db.assembleData({ from: req.query.from, to: req.query.to })));
+app.get('/api/stats', requireAuth, api(() => db.getStatistics()));
+app.get('/api/volume', requireAuth, api(req => db.getVolume({ from: req.query.from, to: req.query.to })));
+app.get('/api/weekly', requireAuth, api(() => db.getWeeklySummary()));
+app.get('/api/exercise/:key', requireAuth, api(req => db.getExerciseSeries(req.params.key)));
+app.get('/api/suggest/:key', requireAuth, api(req => db.suggestNext(req.params.key)));
+
+/* ------------------------------------------------- write API (dashboard form) */
+
+const ADD = { strength: db.addStrength, ride: db.addRide, bodyweight: db.addBodyweight };
+
+app.post('/api/entry', requireAuth, api(req => {
+  const { type, ...fields } = req.body || {};
+  const add = ADD[type];
+  if (!add) throw new Error(`unknown type ${type}`);
+  return add(fields);
+}));
+
+app.patch('/api/entry/:type/:id', requireAuth, api(req =>
+  db.updateEntry({ type: req.params.type, id: req.params.id, fields: req.body || {} })));
+
+app.delete('/api/entry/:type/:id', requireAuth, api(req =>
+  db.deleteEntry({ type: req.params.type, id: req.params.id })));
+
+app.post('/api/undo', requireAuth, api(() => db.undoLast()));
 
 app.get('/', requireAuth, (_req, res) => res.sendFile(path.join(PUBLIC, 'index.html')));
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
@@ -78,6 +104,7 @@ async function start() {
     } else {
       console.log('No public URL or bot token — webhook not registered (fine for local dev).');
     }
+    startDigestScheduler();   // self-disables unless DIGEST_ENABLED=true
   });
 }
 
