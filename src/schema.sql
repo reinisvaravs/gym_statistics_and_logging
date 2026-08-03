@@ -55,3 +55,15 @@ CREATE TABLE IF NOT EXISTS audit_log (
   undone      boolean NOT NULL DEFAULT false
 );
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log (at DESC);
+
+-- Rolling conversation history per Telegram chat, so a follow-up ("and the one
+-- before that?", "make it 80kg") has something to refer back to. Only the plain
+-- user/assistant turns are kept — tool-call traffic is replayed fresh each time.
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id       bigserial PRIMARY KEY,
+  chat_id  text NOT NULL,
+  role     text NOT NULL CHECK (role IN ('user','assistant')),
+  content  text NOT NULL,
+  at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_msgs ON chat_messages (chat_id, id DESC);

@@ -5,11 +5,14 @@ Log workouts by messaging a Telegram bot; view training and statistics on a priv
 - **Telegram bot** — send plain language ("bench 70x10 75x8 today", "delete my last squat",
   "what's my bench PR?"). An LLM turns messages into add/edit/delete/read operations.
   You can also send a **voice note** or a **photo** of a bike computer or machine display.
+  It remembers the conversation, so follow-ups ("make it 8 reps", "and the one before?")
+  work; `/reset` clears the thread without touching your training data.
 - **It talks back** — an optional digest pushes a weekly recap, nudges for lifts that have
   fallen out of rotation, and a next-session suggestion built from your own history.
-- **Web dashboard** — strength progression, estimated 1RM over time, weekly volume, cycling
-  speed/distance/heart-rate, bodyweight, and training-cadence stats. Entries can be added and
-  edited straight from the page. Password-protected, single user.
+- **Web dashboard** — two tabs. *Charts*: strength progression, estimated 1RM over time, weekly
+  volume, cycling speed/distance/heart-rate, bodyweight, training cadence. *Training log*: every
+  entry exactly as saved, grouped by day and filterable by date, type or text. Entries can be
+  added and edited from either. Password-protected, single user.
 - **Postgres** — one source of truth. Works with Supabase or Render Postgres.
 
 ## Stack
@@ -30,7 +33,7 @@ src/
   auth.js       single-user login via signed session cookie
   schema.sql    tables, including the audit log that makes undo possible
 public/
-  index.html    dashboard (charts + add/edit form)
+  index.html    dashboard (charts tab + training-log tab + add/edit form)
   login.html    sign-in
 scripts/
   seed.js           import an existing gym.json into the DB

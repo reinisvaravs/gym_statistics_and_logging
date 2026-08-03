@@ -1,10 +1,15 @@
 import { handleMessage } from './ai.js';
+import * as db from './db.js';
 import { today } from './time.js';
 import { downloadTelegramFile, extractFromImage, transcribeAudio } from './media.js';
 
 const TOKEN   = process.env.TELEGRAM_BOT_TOKEN || '';
 const ALLOWED = (process.env.ALLOWED_TELEGRAM_USER_ID || '').trim();
 const API = `https://api.telegram.org/bot${TOKEN}`;
+
+// How many earlier turns of this chat go back into the prompt. Enough for a follow-up
+// to make sense, short enough that a long thread cannot crowd out the tool results.
+const HISTORY_TURNS = Number(process.env.CHAT_HISTORY_TURNS ?? 20);
 
 export async function tg(method, body) {
   const res = await fetch(`${API}/${method}`, {
@@ -55,6 +60,13 @@ export async function handleUpdate(update, { onChange } = {}) {
     return;
   }
 
+  // Forget the thread without touching any training data.
+  if (msg.text?.trim() === '/reset') {
+    await db.clearChatHistory(chatId).catch(() => {});
+    await sendMessage(chatId, 'Conversation history cleared. Your training log is untouched.');
+    return;
+  }
+
   // Media is turned into plain text first, then goes through the same path as typing it.
   let text = msg.text;
   let prefix = '';
@@ -86,9 +98,15 @@ export async function handleUpdate(update, { onChange } = {}) {
   }
 
   try {
-    const { reply, changed } = await handleMessage(text, today());
+    // History is best-effort: a chat_messages failure must never cost the owner a reply.
+    const history = await db.getChatHistory(chatId, HISTORY_TURNS).catch(() => []);
+    const { reply, changed } = await handleMessage(text, today(), { history });
     if (changed && onChange) onChange();
     await sendMessage(chatId, prefix + reply);
+    await Promise.all([
+      db.appendChatMessage(chatId, 'user', text),
+      db.appendChatMessage(chatId, 'assistant', reply),
+    ]).catch(e2 => console.error('history write failed:', e2.message));
   } catch (e) {
     await sendMessage(chatId, `Something went wrong: ${e.message}`);
   }

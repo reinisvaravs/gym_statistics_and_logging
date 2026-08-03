@@ -204,6 +204,41 @@
   .setrow { display: grid; gap: 8px; align-items: end; margin-top: 8px;
             grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
   .setrow .rm { align-self: end; }
+
+  /* tabs */
+  .tabs { display: flex; gap: 4px; margin-top: 16px; border-bottom: 1px solid var(--border); }
+  .tab {
+    font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+    background: none; border: 0; border-bottom: 2px solid transparent;
+    color: var(--text-secondary); padding: 8px 14px; margin-bottom: -1px;
+  }
+  .tab:hover { color: var(--text-primary); }
+  .tab[aria-pressed="true"] { color: var(--text-primary); border-bottom-color: var(--series-1); }
+
+  /* training log */
+  .log-filters { display: grid; gap: 10px; margin-top: 12px;
+                 grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .log-count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .log-day { margin-top: 14px; }
+  .log-day .dhead {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    padding: 0 2px 7px; border-bottom: 1px solid var(--border);
+  }
+  .log-day .dhead .d { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+  .log-day .dhead .ago, .log-day .dhead .tot { font-size: 12px; color: var(--muted); }
+  .log-item {
+    display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap;
+    padding: 10px 2px; border-bottom: 1px solid var(--grid);
+  }
+  .log-item .body { flex: 1 1 280px; min-width: 0; }
+  .log-item .ttl { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+  .log-item .ttl .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; }
+  .log-item .det { font-size: 13px; color: var(--text-secondary); margin-top: 3px;
+                   font-variant-numeric: tabular-nums; word-break: break-word; }
+  .log-item .meta { font-size: 11px; color: var(--muted); margin-top: 3px; text-transform: uppercase; letter-spacing: .05em; }
+  .log-item .note { font-size: 12px; color: var(--text-secondary); margin-top: 4px; font-style: italic; }
+  .log-item .row-acts { flex: 0 0 auto; }
+  .log-empty { padding: 26px 2px; font-size: 13px; color: var(--muted); text-align: center; }
 </style>
 </head>
 <body>
@@ -221,6 +256,10 @@
     </div>
   </div>
   <div class="hint">Add or edit trainings here, or by messaging your Telegram bot.</div>
+  <nav class="tabs" id="tabs">
+    <button class="tab" data-view="charts" aria-pressed="true">Charts</button>
+    <button class="tab" data-view="log" aria-pressed="false">Training log</button>
+  </nav>
 </header>
 
 <section class="card hidden" id="c-add">
@@ -242,6 +281,8 @@
     <span class="add-status" id="add-status"></span>
   </div>
 </section>
+
+<div id="view-charts">
 
 <div class="tiles" id="tiles"></div>
 
@@ -338,6 +379,40 @@
   <div class="foot">Only 3 readings across 4½ months, so this is three data points, not a trend.</div>
 </section>
 
+</div><!-- /view-charts -->
+
+<section id="view-log" class="hidden">
+  <div class="card">
+    <div class="card-head">
+      <h2>Training log</h2>
+      <span class="log-count" id="log-count"></span>
+    </div>
+    <div class="desc">Every entry exactly as it was saved, newest first. Filter by date to read back a specific day.</div>
+
+    <div class="log-filters">
+      <div class="fld"><label for="log-from">From</label><input type="date" id="log-from"></div>
+      <div class="fld"><label for="log-to">To</label><input type="date" id="log-to"></div>
+      <div class="fld"><label for="log-type">Type</label>
+        <select id="log-type">
+          <option value="">All types</option>
+          <option value="strength">Strength</option>
+          <option value="ride">Rides</option>
+          <option value="bodyweight">Bodyweight</option>
+        </select>
+      </div>
+      <div class="fld"><label for="log-q">Search</label><input type="search" id="log-q" placeholder="squat, outdoors, note…"></div>
+    </div>
+    <div class="add-row">
+      <button class="toggle" data-range="7">Last 7 days</button>
+      <button class="toggle" data-range="30">Last 30 days</button>
+      <button class="toggle" data-range="90">Last 90 days</button>
+      <button class="toggle" data-range="0">All time</button>
+    </div>
+  </div>
+
+  <div id="log-days"></div>
+</section>
+
 </div>
 
 <script>
@@ -366,6 +441,7 @@ const LOC = { in: { name:'Indoors', hex: () => cssv('--series-1') },
 
 /* ------------------------------------------------------------- helpers */
 
+const $    = id => document.getElementById(id);
 const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const dt   = s => new Date(s + 'T00:00:00');
 const MON  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -812,12 +888,106 @@ function renderBW() {
     BODYWEIGHT.map(b => [fdate(b.d), b.kg + ' kg', acts('bodyweight', b.id)]));
 }
 
+/* ---------------------------------------------------------- training log */
+
+// One flat, newest-first list of every entry as it was saved. The charts summarise;
+// this is for reading a specific day back.
+function logEntries() {
+  const out = [];
+  for (const ex of Object.values(STRENGTH)) {
+    for (const s of ex.sessions) {
+      out.push({ type: 'strength', id: s.id, d: s.d, hex: ex.hex,
+        title: ex.name, detail: setsLabel(s.sets),
+        meta: [s.volume ? `${kgOrT(s.volume)} volume` : null,
+               sessE1RM(s) ? `e1RM ${round(sessE1RM(s), 1)} kg` : null,
+               `${s.sets.length} ${s.sets.length === 1 ? 'set' : 'sets'}`].filter(Boolean).join(' · '),
+        note: s.note || '', volume: s.volume || 0,
+        search: `${ex.name} ${ex.key} ${setsLabel(s.sets)} ${s.note || ''}`.toLowerCase() });
+    }
+  }
+  for (const r of RIDES) {
+    const parts = [r.min ? dur(r.min) : null, r.km ? `${r.km} km` : null, r.kmh ? `${r.kmh} km/h` : null].filter(Boolean);
+    const extra = [r.bpm ? `${r.bpm} bpm avg` : null, r.w ? `${r.w} W avg` : null, r.rpm ? `${r.rpm} rpm` : null].filter(Boolean);
+    out.push({ type: 'ride', id: r.id, d: r.d, hex: LOC[r.loc].hex,
+      title: `Bike — ${LOC[r.loc].name.toLowerCase()}`, detail: parts.join(' · ') || '—',
+      meta: extra.join(' · '), note: r.note || '', volume: 0,
+      search: `bike ride ${LOC[r.loc].name} ${parts.join(' ')} ${r.note || ''}`.toLowerCase() });
+  }
+  for (const b of BODYWEIGHT) {
+    out.push({ type: 'bodyweight', id: b.id, d: b.d, hex: () => cssv('--muted'),
+      title: 'Bodyweight', detail: `${b.kg} kg`, meta: 'scale reading', note: '', volume: 0,
+      search: `bodyweight scale ${b.kg}`.toLowerCase() });
+  }
+  // newest first; within a day, strength before rides before the scale
+  const rank = { strength: 0, ride: 1, bodyweight: 2 };
+  return out.sort((a, b) => b.d.localeCompare(a.d) || rank[a.type] - rank[b.type]);
+}
+
+const daysAgo = d => Math.round((new Date(new Date().toDateString()) - dt(d)) / DAY);
+const agoLabel = n => n <= 0 ? 'today' : n === 1 ? 'yesterday' : `${n} days ago`;
+
+function renderLog() {
+  const from = $('log-from').value, to = $('log-to').value;
+  const type = $('log-type').value, q = $('log-q').value.trim().toLowerCase();
+
+  const rows = logEntries().filter(e =>
+    (!from || e.d >= from) && (!to || e.d <= to) &&
+    (!type || e.type === type) && (!q || e.search.includes(q)));
+
+  const host = $('log-days');
+  const all = logEntries().length;
+  $('log-count').textContent = rows.length === all
+    ? `${all} ${all === 1 ? 'entry' : 'entries'}`
+    : `${rows.length} of ${all} entries`;
+
+  if (!rows.length) {
+    host.innerHTML = `<div class="card"><div class="log-empty">No entries match these filters.${
+      all ? ' Try widening the date range.' : ''}</div></div>`;
+    return;
+  }
+
+  const days = [...new Set(rows.map(e => e.d))];
+  host.innerHTML = days.map(d => {
+    const items = rows.filter(e => e.d === d);
+    const vol = items.reduce((t, e) => t + e.volume, 0);
+    const km = RIDES.filter(r => r.d === d).reduce((t, r) => t + (r.km || 0), 0);
+    const tot = [vol ? kgOrT(vol) : null, km ? `${round(km, 1)} km` : null].filter(Boolean).join(' · ');
+    const x = dt(d);
+    return `<section class="card log-day">
+      <div class="dhead">
+        <span class="d">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][x.getDay()]} ${fdate(d)}, ${x.getFullYear()}</span>
+        <span class="ago">${agoLabel(daysAgo(d))}</span>
+        ${tot ? `<span class="tot">${tot}</span>` : ''}
+      </div>
+      ${items.map(e => `<div class="log-item">
+        <div class="body">
+          <div class="ttl"><span class="dot" style="background:${e.hex()}"></span>${esc(e.title)}</div>
+          <div class="det">${esc(e.detail)}</div>
+          ${e.meta ? `<div class="meta">${esc(e.meta)}</div>` : ''}
+          ${e.note ? `<div class="note">“${esc(e.note)}”</div>` : ''}
+        </div>
+        <div class="row-acts">${acts(e.type, e.id).html}</div>
+      </div>`).join('')}
+    </section>`;
+  }).join('');
+}
+
+function showView(view) {
+  document.querySelectorAll('#tabs .tab').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.view === view)));
+  $('view-charts').classList.toggle('hidden', view !== 'charts');
+  $('view-log').classList.toggle('hidden', view !== 'log');
+  if (view === 'log') renderLog();
+  else renderAll();                       // charts need a live layout to size against
+}
+
 function renderAll() {
   if (!RIDES.length && !Object.keys(STRENGTH).length) return;
   setDomain();
   const days = uniqueTrainingDays();
   document.getElementById('subtitle').textContent =
     `${days.length} sessions · ${fdate(days[0])} – ${fdate(days.at(-1))}, ${new Date(X1).getFullYear()}`;
+  if (!$('view-log').classList.contains('hidden')) { renderLog(); return; }
   renderTiles(); renderCadence();
   renderStrength(); renderE1RM(); renderVolume();
   renderSpeed(); renderDist(); renderHR(); renderBW();
@@ -854,6 +1024,29 @@ document.getElementById('logout').addEventListener('click', async () => {
   location.href = '/login';
 });
 
+/* tabs — the view lives in the hash so a reload keeps you where you were */
+document.querySelectorAll('#tabs .tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    location.hash = btn.dataset.view === 'log' ? 'log' : '';
+    showView(btn.dataset.view);
+  });
+});
+if (location.hash === '#log') showView('log');
+
+/* log filters */
+['log-from', 'log-to', 'log-type', 'log-q'].forEach(id =>
+  $(id).addEventListener('input', renderLog));
+
+document.querySelectorAll('[data-range]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const days = +btn.dataset.range;
+    const iso = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    $('log-from').value = days ? iso(new Date(Date.now() - days * DAY)) : '';
+    $('log-to').value = '';
+    renderLog();
+  });
+});
+
 /* table toggles */
 document.querySelectorAll('[data-table]').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -875,7 +1068,6 @@ document.querySelectorAll('[data-table]').forEach(btn => {
    DELETE /api/entry/:type/:id
    Field names are exactly the ones db.addStrength / addRide / addBodyweight take. */
 
-const $ = id => document.getElementById(id);
 const val = id => ($(id) ? $(id).value : '');
 const nval = v => (v === '' || v == null || !Number.isFinite(+v) ? null : +v);
 const todayStr = () => new Date().toLocaleDateString('en-CA');

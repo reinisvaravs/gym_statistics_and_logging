@@ -192,9 +192,45 @@ export async function addBodyweight({ date, weightKg }) {
 
 /* ----------------------------------------------------------- CRUD: read/find */
 
-// flexible search the AI uses before editing/deleting; returns rows with ids
+// Exercise keys that actually exist in the log — used to tell "no such lift" apart
+// from "that lift has no sessions in this date range".
+export async function knownExerciseKeys() {
+  const rows = await q(`SELECT DISTINCT exercise_key FROM strength_sessions ORDER BY exercise_key`);
+  return rows.map(r => r.exercise_key);
+}
+
+// Words that mean cycling, not a lift. "bike outdoors" must not be looked up as a
+// strength exercise and come back as a silent empty result.
+const CYCLING_RE = /\b(bike|biking|bicycle|cycl|ride|riding|spin)/i;
+
+// flexible search the AI uses before editing/deleting; returns rows with ids.
+// Shape: { count, entries, note? } — `note` explains an empty result so the caller
+// never has to read [] as "this never happened".
 export async function findEntries({ type, dateFrom, dateTo, exercise, limit = 25 } = {}) {
   const out = [];
+  let note;
+
+  // An `exercise` filter only ever meant strength lifts, but it used to be dropped
+  // silently for rides and bodyweight — so "find my bike rides" searched lifts,
+  // found nothing, and read back as "you have no rides".
+  if (exercise) {
+    if (CYCLING_RE.test(exercise)) {
+      return { count: 0, entries: [],
+        note: `"${exercise}" is cycling, not a strength lift. Call find_entries with type:"ride" (no exercise filter), or get_ride_series for a trend.` };
+    }
+    const key = exerciseKey(exercise);
+    const known = await knownExerciseKeys();
+    if (!known.includes(key)) {
+      return { count: 0, entries: [],
+        note: `No lift named "${exercise}" has ever been logged. Known lifts: ${known.join(', ') || '(none yet)'}.` };
+    }
+    if (type && type !== 'strength') {
+      return { count: 0, entries: [],
+        note: `An exercise filter only applies to strength entries, but type was "${type}".` };
+    }
+    type = 'strength';
+  }
+
   const wantStrength = !type || type === 'strength';
   const wantRide     = !type || type === 'ride';
   const wantBw       = !type || type === 'bodyweight';
@@ -232,7 +268,14 @@ export async function findEntries({ type, dateFrom, dateTo, exercise, limit = 25
     rows.forEach(r => out.push({ type: 'bodyweight', id: r.id, date: r.d, weightKg: num(r.weight_kg),
       summary: `Bodyweight on ${r.d}: ${num(r.weight_kg)}kg` }));
   }
-  return out.sort((a, b) => b.date.localeCompare(a.date)).slice(0, +limit);
+
+  const entries = out.sort((a, b) => b.date.localeCompare(a.date)).slice(0, +limit);
+  if (!entries.length && !note) {
+    const range = [dateFrom && `from ${dateFrom}`, dateTo && `to ${dateTo}`].filter(Boolean).join(' ');
+    note = `Nothing matched${type ? ` for type "${type}"` : ''}${range ? ` ${range}` : ''}.` +
+      (range ? ' There may still be entries outside that date range — retry without dateFrom/dateTo before concluding there is no data.' : '');
+  }
+  return { count: entries.length, entries, ...(note ? { note } : {}) };
 }
 
 const describeSet = s =>
@@ -387,11 +430,21 @@ export async function getVolume({ from, to } = {}) {
 }
 
 // One lift over time — the shape the e1RM chart wants.
+// A miss returns { found:false, reason } rather than null: this tool is STRENGTH ONLY,
+// and a bare null read back as "you have no such training at all", which was wrong for
+// every ride ever logged.
 export async function getExerciseSeries(exercise) {
   const data = await assembleData();
   const ex = data.strength.find(e => e.key === exerciseKey(exercise));
-  if (!ex) return null;
+  if (!ex) {
+    const known = data.strength.map(e => e.key);
+    return { found: false, exercise,
+      reason: CYCLING_RE.test(String(exercise))
+        ? `"${exercise}" is cycling. This tool only covers strength lifts — call get_ride_series instead.`
+        : `No strength lift named "${exercise}". Known lifts: ${known.join(', ') || '(none yet)'}. If this is a ride, call get_ride_series.` };
+  }
   return {
+    found: true,
     exercise: ex.name, key: ex.key, bodyweightLift: ex.bodyweightLift,
     points: ex.sessions.map(s => {
       const top = topSet(s.sets);
@@ -401,6 +454,119 @@ export async function getExerciseSeries(exercise) {
         sets: s.sets.map(describeSet).join(', '),
       };
     }),
+  };
+}
+
+// Cycling over time — the ride counterpart to getExerciseSeries. `location` narrows to
+// 'outdoors' or 'indoors'; the two are not comparable (wind resistance, different bikes),
+// so a trend is only computed within one location.
+export async function getRideSeries({ location } = {}) {
+  const loc = location === 'outdoors' || location === 'out' ? 'out'
+            : location === 'indoors'  || location === 'in'  ? 'in' : null;
+  const all = (await assembleData()).rides;
+  const rides = loc ? all.filter(r => r.loc === loc) : all;
+  const label = loc === 'out' ? 'outdoors' : loc === 'in' ? 'indoors' : 'all rides';
+
+  if (!rides.length) {
+    return { found: false, location: label,
+      reason: all.length
+        ? `No ${label} rides logged. There are ${all.length} rides in total — try the other location, or omit location.`
+        : 'No rides have ever been logged.' };
+  }
+
+  const points = rides.map(r => ({
+    date: r.d, location: r.loc === 'out' ? 'outdoors' : 'indoors',
+    durationMin: r.min ?? null, distanceKm: r.km ?? null, speedKmh: r.kmh ?? null,
+    avgHr: r.bpm ?? null, avgWatts: r.w ?? null, avgCadence: r.rpm ?? null,
+  }));
+
+  // Month buckets make a trend legible without the model having to average by hand.
+  const months = new Map();
+  for (const p of points) {
+    const m = p.date.slice(0, 7);
+    if (!months.has(m)) months.set(m, []);
+    months.get(m).push(p);
+  }
+  const mean = (xs, f) => { const v = xs.map(f).filter(x => x != null); return v.length ? round(v.reduce((a, b) => a + b, 0) / v.length, 1) : null; };
+  const perMonth = [...months.entries()].sort().map(([month, ps]) => ({
+    month, rides: ps.length,
+    totalKm: round(ps.reduce((t, p) => t + (p.distanceKm || 0), 0), 1),
+    avgSpeedKmh: mean(ps, p => p.speedKmh), avgHr: mean(ps, p => p.avgHr), avgWatts: mean(ps, p => p.avgWatts),
+  }));
+
+  // Improvement = first half of the history vs the most recent half, by average speed.
+  const withSpeed = points.filter(p => p.speedKmh != null);
+  let trend = null;
+  if (withSpeed.length >= 4) {
+    const half = Math.floor(withSpeed.length / 2);
+    const early = mean(withSpeed.slice(0, half), p => p.speedKmh);
+    const recent = mean(withSpeed.slice(-half), p => p.speedKmh);
+    trend = { earlyAvgSpeedKmh: early, recentAvgSpeedKmh: recent,
+      changeKmh: round(recent - early, 1),
+      changePct: early ? round(((recent - early) / early) * 100, 1) : null,
+      basis: `first ${half} rides vs last ${half}` };
+  }
+
+  const fastest = withSpeed.reduce((b, p) => (p.speedKmh > (b?.speedKmh ?? 0) ? p : b), null);
+  const longest = points.reduce((b, p) => ((p.distanceKm || 0) > (b?.distanceKm ?? 0) ? p : b), null);
+
+  return {
+    found: true, location: label, rides: rides.length,
+    totalKm: round(points.reduce((t, p) => t + (p.distanceKm || 0), 0), 1),
+    avgSpeedKmh: mean(points, p => p.speedKmh),
+    fastestRide: fastest && { date: fastest.date, speedKmh: fastest.speedKmh, distanceKm: fastest.distanceKm },
+    longestRide: longest && { date: longest.date, distanceKm: longest.distanceKm, speedKmh: longest.speedKmh },
+    trend, perMonth, points,
+  };
+}
+
+// "What did I train last?" — a merged, most-recent-first timeline across every type.
+// Nothing else answered this, so the model used to improvise with a guessed date window
+// and report "nothing logged recently" whenever the guess missed.
+export async function getRecentActivity({ days = 30, limit = 20 } = {}, now = today()) {
+  const data = await assembleData();
+
+  const items = [
+    ...data.strength.flatMap(ex => ex.sessions.map(s => ({
+      type: 'strength', date: s.d, exercise: ex.name, key: ex.key,
+      sets: s.sets.map(describeSet).join(', '), volumeKg: s.volume, e1rm: s.e1rm, note: s.note ?? null,
+      summary: `${ex.name}: ${s.sets.map(describeSet).join(', ')}`,
+    }))),
+    ...data.rides.map(r => ({
+      type: 'ride', date: r.d, location: r.loc === 'out' ? 'outdoors' : 'indoors',
+      durationMin: r.min ?? null, distanceKm: r.km ?? null, speedKmh: r.kmh ?? null, avgHr: r.bpm ?? null,
+      summary: `Bike (${r.loc === 'out' ? 'outdoors' : 'indoors'})` +
+               `${r.min ? `, ${r.min}min` : ''}${r.km ? `, ${r.km}km` : ''}${r.kmh ? `, ${r.kmh}km/h` : ''}`,
+    })),
+    ...data.bodyweight.map(b => ({ type: 'bodyweight', date: b.d, weightKg: b.kg, summary: `Bodyweight ${b.kg}kg` })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
+
+  const training = items.filter(i => i.type !== 'bodyweight');
+  const lastDate = training[0]?.date ?? null;
+
+  // The window is a preference, not a filter of last resort: if nothing falls inside it,
+  // fall back to the most recent sessions there are and say so.
+  const cutoff = addDays(now, -Math.abs(days));
+  const inWindow = items.filter(i => i.date >= cutoff);
+  const windowed = inWindow.length > 0;
+  const recent = (windowed ? inWindow : items).slice(0, limit);
+
+  const dates = [...new Set(recent.filter(i => i.type !== 'bodyweight').map(i => i.date))];
+  const byDay = dates.map(d => ({ date: d, daysAgo: daysBetween(d, now),
+    entries: recent.filter(i => i.date === d && i.type !== 'bodyweight').map(i => i.summary) }));
+
+  return {
+    today: now,
+    lastTrainingDate: lastDate,
+    daysSinceLastTraining: lastDate ? daysBetween(lastDate, now) : null,
+    lastSession: training[0] ?? null,
+    totalTrainingEntriesEver: training.length,
+    windowDays: days,
+    withinWindow: windowed,
+    note: windowed ? undefined
+      : `Nothing in the last ${days} days; showing the most recent entries instead (latest is ${lastDate ?? 'none'}).`,
+    byDay,
+    entries: recent,
   };
 }
 
@@ -449,26 +615,61 @@ export async function getWeeklySummary(now = today()) {
   const bestPr = new Map();
   for (const p of prs) if (!bestPr.has(p.key) || bestPr.get(p.key).e1rm < p.e1rm) bestPr.set(p.key, p);
 
-  return { thisWeek: window(thisWeek, now), lastWeek: window(lastWeek, addDays(thisWeek, -1)), prs: [...bestPr.values()] };
+  // On a Monday "this week" is a single day, so an empty thisWeek says nothing about
+  // whether training is happening. Carry the real last-training date so an empty week
+  // can never be read as "you have not trained recently".
+  const allDates = [...all.strength.flatMap(ex => ex.sessions.map(s => s.d)), ...all.rides.map(r => r.d)].sort();
+  const lastDate = allDates.at(-1) ?? null;
+
+  return {
+    thisWeek: window(thisWeek, now),
+    lastWeek: window(lastWeek, addDays(thisWeek, -1)),
+    prs: [...bestPr.values()],
+    lastTrainingDate: lastDate,
+    daysSinceLastTraining: lastDate ? daysBetween(lastDate, now) : null,
+    note: 'thisWeek starts on Monday and may be nearly empty early in the week — check lastTrainingDate before saying nothing has been logged.',
+  };
+}
+
+/* ------------------------------------------------------------- chat history */
+
+export async function appendChatMessage(chatId, role, content) {
+  if (!chatId || !content) return;
+  await q(`INSERT INTO chat_messages (chat_id, role, content) VALUES ($1,$2,$3)`,
+    [String(chatId), role, String(content).slice(0, 4000)]);
+}
+
+// Most recent `limit` turns, oldest-first so they drop straight into a prompt.
+export async function getChatHistory(chatId, limit = 20) {
+  if (!chatId) return [];
+  const rows = await q(`SELECT role, content FROM chat_messages WHERE chat_id = $1 ORDER BY id DESC LIMIT ${+limit}`,
+    [String(chatId)]);
+  return rows.reverse().map(r => ({ role: r.role, content: r.content }));
+}
+
+export async function clearChatHistory(chatId) {
+  await q(`DELETE FROM chat_messages WHERE chat_id = $1`, [String(chatId)]);
+  return { cleared: true };
 }
 
 // Progressive overload from the athlete's own last session. Deliberately conservative:
 // hold the weight and add a rep until the top set is strong, then add the smallest plate.
 export async function suggestNext(exercise) {
   const series = await getExerciseSeries(exercise);
-  if (!series || !series.points.length) return null;
+  if (!series?.found) return series ?? { found: false, exercise, reason: 'unknown exercise' };
+  if (!series.points.length) return { found: false, exercise, reason: `"${exercise}" has no logged sessions to progress from.` };
   const last = series.points.at(-1);
   const name = series.exercise;
 
   if (series.bodyweightLift) {
-    return { exercise: name, key: series.key, lastDate: last.date, lastSets: last.sets,
+    return { found: true, exercise: name, key: series.key, lastDate: last.date, lastSets: last.sets,
       suggestion: `${name}: last ${last.topSetReps} reps — aim for ${last.topSetReps + 1} on the top set.` };
   }
   const kg = last.topSetKg, reps = last.topSetReps;
   const next = reps >= 8
     ? { kg: round(kg + 2.5, 1), reps: Math.max(5, reps - 3) }
     : { kg, reps: reps + 1 };
-  return { exercise: name, key: series.key, lastDate: last.date, lastSets: last.sets,
+  return { found: true, exercise: name, key: series.key, lastDate: last.date, lastSets: last.sets,
     targetKg: next.kg, targetReps: next.reps,
     suggestion: `${name}: last ${kg}kg×${reps} — try ${next.kg}kg×${next.reps}.` };
 }

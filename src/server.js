@@ -57,8 +57,17 @@ app.get('/api/data',  requireAuth, api(req => db.assembleData({ from: req.query.
 app.get('/api/stats', requireAuth, api(() => db.getStatistics()));
 app.get('/api/volume', requireAuth, api(req => db.getVolume({ from: req.query.from, to: req.query.to })));
 app.get('/api/weekly', requireAuth, api(() => db.getWeeklySummary()));
-app.get('/api/exercise/:key', requireAuth, api(req => db.getExerciseSeries(req.params.key)));
-app.get('/api/suggest/:key', requireAuth, api(req => db.suggestNext(req.params.key)));
+// getExerciseSeries/suggestNext now report a miss as { found:false, reason } so the AI can
+// act on it; over HTTP that is still a 404.
+const orNull = v => (v?.found === false ? null : v);
+
+app.get('/api/exercise/:key', requireAuth, api(async req => orNull(await db.getExerciseSeries(req.params.key))));
+app.get('/api/suggest/:key', requireAuth, api(async req => orNull(await db.suggestNext(req.params.key))));
+app.get('/api/rides', requireAuth, api(req => db.getRideSeries({ location: req.query.location })));
+app.get('/api/recent', requireAuth, api(req => db.getRecentActivity({
+  days: req.query.days ? +req.query.days : undefined,
+  limit: req.query.limit ? +req.query.limit : undefined,
+})));
 
 /* ------------------------------------------------- write API (dashboard form) */
 
