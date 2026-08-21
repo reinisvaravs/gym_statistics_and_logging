@@ -129,6 +129,11 @@ is the natural moment to retire them.
 Only the 11 variables in `.env.example` need values. Everything else is defaulted in
 `src/config.js` and listed in `ENV_REFERENCE.md` - do not paste defaults back in.
 
+This file is the **third** instance of the env file, alongside the committed
+`.env.example` and the local development `.env`. All three carry the same keys in the
+same order; only the values differ. When a key is added, removed or renamed, it must be
+changed in all three - and this one is only reachable from the server.
+
 `src/config.js` validates all of this at boot, so a mistake here stops the service with
 a message naming the variable rather than starting something quietly broken.
 
