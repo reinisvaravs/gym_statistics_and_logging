@@ -3,17 +3,59 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { today, addDays, daysBetween, weekStart } from './time.js';
+import { config } from './config.js';
+import { log, errorFields } from './logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_NO_SSL === 'true' ? false : { rejectUnauthorized: false },
+  connectionString: config.database.url,
+  // config.js decides this. It used to be an unconditional { rejectUnauthorized: false },
+  // which accepts any certificate from anyone and makes the TLS purely decorative.
+  ssl: config.database.ssl,
+
+  // Bounded on purpose. This box hosts every side project on 3.7 GB of RAM, and each
+  // Postgres backend costs memory server-side; an unbounded pool under load is how one
+  // project exhausts the connection limit for all of them.
+  max: 10,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 10_000,
+  // Never let a runaway query pin a connection forever.
+  statement_timeout: 15_000,
+  query_timeout: 15_000,
+  application_name: 'gym-tracker',
 });
+
+// A pool error on an *idle* connection is emitted on the pool itself. With no listener
+// Node treats it as an unhandled 'error' event and takes the process down — so a brief
+// database blip becomes a crash.
+pool.on('error', err => log.error('idle postgres client error', errorFields(err)));
 
 export async function initSchema() {
   const sql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   await pool.query(sql);
+}
+
+// Liveness probe for /healthz. Cheap, and it proves the pool can actually reach Postgres
+// rather than merely that the process is running.
+export async function ping() {
+  await pool.query('SELECT 1');
+  return true;
+}
+
+// Called on SIGTERM so in-flight queries finish before the process exits.
+export async function close() {
+  await pool.end();
+}
+
+// Conversation history is a convenience for follow-up questions, not a record worth
+// keeping forever. Without a ceiling this table grows unbounded on a disk shared with
+// every other side project. Training data is never touched.
+export async function pruneChatHistory(days) {
+  const { rowCount } = await pool.query(
+    `DELETE FROM chat_messages WHERE at < now() - ($1 || ' days')::interval`, [String(days)]);
+  if (rowCount) log.info('pruned chat history', { rows: rowCount, olderThanDays: days });
+  return rowCount;
 }
 
 const q = (text, params) => pool.query(text, params).then(r => r.rows);

@@ -1,3 +1,4 @@
+import { config } from './config.js';
 /*
  * Strava import for cycling rides.
  *
@@ -37,9 +38,9 @@ const KM_TOLERANCE = 0.2;
 const MIN_TOLERANCE = 1;
 
 function env() {
-  const clientId = process.env.STRAVA_CLIENT_ID;
-  const clientSecret = process.env.STRAVA_CLIENT_SECRET;
-  const refreshToken = process.env.STRAVA_REFRESH_TOKEN;
+  const clientId = config.strava.clientId;
+  const clientSecret = config.strava.clientSecret;
+  const refreshToken = config.strava.refreshToken;
   const missing = [
     !clientId && 'STRAVA_CLIENT_ID',
     !clientSecret && 'STRAVA_CLIENT_SECRET',

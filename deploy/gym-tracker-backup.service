@@ -1,0 +1,16 @@
+# Install: /etc/systemd/system/gym-tracker-backup.service
+[Unit]
+Description=Nightly Postgres backup for the gym tracker
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/gym-tracker-backup.sh
+# Runs as root because it needs sudo -u postgres and writes to /var/backups.
+User=root
+# A failed backup must be visible, not silent. Check with:
+#   systemctl status gym-tracker-backup.service
+#   journalctl -u gym-tracker-backup.service --since '2 days ago'
+StandardOutput=journal
+StandardError=journal

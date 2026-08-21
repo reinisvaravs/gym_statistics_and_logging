@@ -2,18 +2,25 @@ import { handleMessage } from './ai.js';
 import * as db from './db.js';
 import { today } from './time.js';
 import { downloadTelegramFile, extractFromImage, transcribeAudio } from './media.js';
+import { config } from './config.js';
+import { log, errorFields } from './logger.js';
 
-const TOKEN   = process.env.TELEGRAM_BOT_TOKEN || '';
-const ALLOWED = (process.env.ALLOWED_TELEGRAM_USER_ID || '').trim();
+const TOKEN   = config.telegram.botToken;
+const ALLOWED = config.telegram.allowedUserId;
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
 // How many earlier turns of this chat go back into the prompt. Enough for a follow-up
 // to make sense, short enough that a long thread cannot crowd out the tool results.
-const HISTORY_TURNS = Number(process.env.CHAT_HISTORY_TURNS ?? 20);
+const HISTORY_TURNS = config.telegram.historyTurns;
 
 export async function tg(method, body) {
+  // Without a timeout a stalled connection to Telegram holds the handler — and one of
+  // the pool's sockets — open for as long as the peer keeps it alive.
   const res = await fetch(`${API}/${method}`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(20_000),
   });
   const data = await res.json();
   if (!data.ok) throw new Error(`Telegram ${method}: ${data.description}`);
@@ -106,8 +113,12 @@ export async function handleUpdate(update, { onChange } = {}) {
     await Promise.all([
       db.appendChatMessage(chatId, 'user', text),
       db.appendChatMessage(chatId, 'assistant', reply),
-    ]).catch(e2 => console.error('history write failed:', e2.message));
-  } catch (e) {
-    await sendMessage(chatId, `Something went wrong: ${e.message}`);
+    ]).catch(err => log.warn('chat history write failed', errorFields(err)));
+  } catch (err) {
+    // The message goes to the owner's private chat, but an OpenAI or pg error can name
+    // internals, so the detail stays in the journal.
+    log.error('message handling failed', errorFields(err));
+    await sendMessage(chatId, 'Something went wrong handling that. It has been logged.')
+      .catch(() => {});
   }
 }

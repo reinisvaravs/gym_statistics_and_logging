@@ -13,7 +13,7 @@ Log workouts by messaging a Telegram bot; view training and statistics on a priv
   volume, cycling speed/distance/heart-rate, bodyweight, training cadence. *Training log*: every
   entry exactly as saved, grouped by day and filterable by date, type or text. Entries can be
   added and edited from either. Password-protected, single user.
-- **Postgres** — one source of truth. Works with Supabase or Render Postgres.
+- **Postgres** — one source of truth. Self-hosted on the VPS; any Postgres works.
 
 ## Stack
 
@@ -56,7 +56,7 @@ Copy `.env.example` to `.env` and fill it in. Every value is documented there. S
 
 | Variable | What it is |
 |---|---|
-| `DATABASE_URL` | Postgres connection string (Supabase or Render) |
+| `DATABASE_URL` | Postgres connection string |
 | `TIMEZONE` | IANA name, default `Europe/Riga`. Decides what "today" means |
 | `OPENAI_API_KEY` | OpenAI key; `OPENAI_MODEL` defaults to `gpt-4o-mini` |
 | `OPENAI_VISION_MODEL` / `OPENAI_TRANSCRIBE_MODEL` | read photos / transcribe voice notes |
@@ -68,7 +68,7 @@ Copy `.env.example` to `.env` and fill it in. Every value is documented there. S
 | `ALLOWED_TELEGRAM_USER_ID` | only this Telegram user may use the bot |
 | `AUTH_USERNAME` / `AUTH_PASSWORD_HASH` | dashboard login (hash via the script below) |
 | `SESSION_SECRET` | signs the login cookie |
-| `PUBLIC_URL` | your deployed URL (auto-detected on Render) |
+| `PUBLIC_URL` | the public HTTPS origin; the Telegram webhook is registered here |
 
 Generate the password hash:
 
@@ -81,33 +81,48 @@ and it replies with your id. Put it in the env and redeploy.
 
 ## Run locally
 
-Needs a Postgres to point at (a Supabase database works fine from your machine).
+Needs a Postgres to point at.
 
 ```bash
 npm install
-cp .env.example .env         # then edit it
-# for a local Postgres without TLS, set DATABASE_NO_SSL=true in .env
+cp .env.example .env         # then edit it — 11 values, all required
 npm run seed                 # optional: import gym.json
-npm start                    # http://localhost:8731
+npm start                    # http://127.0.0.1:8731
 ```
+
+Postgres TLS is derived from the host in `DATABASE_URL`: a loopback connection skips it,
+anything remote must present a certificate that verifies. There is no flag to turn
+verification off.
+
+Every variable is validated at boot. A missing or malformed one stops the process with a
+message naming it, rather than starting a server that is quietly insecure — so the first
+run after editing `.env` tells you exactly what is still wrong. Only the variables that
+must be set live in the env files; every default is listed in
+[`ENV_REFERENCE.md`](ENV_REFERENCE.md).
 
 The Telegram webhook only registers when a public URL is set, so local runs serve the
 dashboard without the bot. To exercise the bot locally, expose the port with a tunnel
 (e.g. cloudflared/ngrok) and set `PUBLIC_URL` to the tunnel URL.
 
-## Deploy (Render)
+## Deploy
 
-1. Push this repo to GitHub.
-2. Render → **New → Blueprint** → select the repo. `render.yaml` provisions the web
-   service and a Postgres database.
-3. In the service's **Environment** tab, set the secrets marked `sync: false`
-   (OpenAI key, bot token, webhook secret, allowed user id, auth username + hash).
-4. Deploy. On boot the app creates its tables and registers the Telegram webhook. It
-   starts with an empty database — add trainings via the bot, or seed existing history
-   (below).
+The app runs on a hardened Hetzner VPS behind Caddy, supervised by systemd, with
+Postgres on the same box. **[`DEPLOYMENT.md`](DEPLOYMENT.md) is the full runbook** —
+packages, database, service account, secrets, TLS, backups and fail2ban, plus the
+verification and rollback steps.
 
-Using **Supabase** for the database instead: remove the `databases` block from
-`render.yaml` and set `DATABASE_URL` to your Supabase connection string.
+Everything the server needs lives in [`deploy/`](deploy/):
+
+| File | Purpose |
+| --- | --- |
+| `gym-tracker.service` | systemd unit, sandboxed and memory-capped |
+| `Caddyfile` | reverse proxy with automatic TLS |
+| `backup.sh` + `*-backup.{service,timer}` | nightly `pg_dump`, 30-day retention |
+| `fail2ban/` | jail and filter matching the app's security log events |
+
+In short: the app binds `127.0.0.1` only, Caddy is the sole process facing the internet,
+secrets live in a root-owned `0600` file outside the repo, and the service runs as a
+dedicated account that owns nothing else.
 
 ### Seeding existing history (optional)
 
@@ -116,8 +131,11 @@ Training records are **not** in this repo (see privacy below). To load a local
 production connection string:
 
 ```bash
-DATABASE_URL="<your Supabase/Render URL>" node scripts/seed.js path/to/gym.json
+DATABASE_URL="<your connection string>" node scripts/seed.js path/to/gym.json
 ```
+
+On the server `SEED_ON_EMPTY` defaults to `false`: an empty database after a failed
+restore must not silently refill with stale data and hide the real problem.
 
 ### Importing rides from Strava
 
@@ -154,10 +172,33 @@ unless a lift has gone stale. Staleness is judged against each lift's *own* rhyt
 benching every three weeks doesn't get nagged weekly, and during a real layoff it sends one
 line a week rather than every day.
 
+## Security
+
+- **Configuration fails fast.** `src/config.js` validates every variable at boot and
+  refuses to start on anything missing or malformed. There are no silent fallbacks for
+  values that carry security weight — two earlier holes existed precisely because of
+  them: a default session-signing secret, and a webhook check that compared `undefined`
+  to `undefined` and so authenticated everyone.
+- **Sessions** are HMAC-signed cookies: `HttpOnly`, `SameSite=Strict`, `Secure` in
+  production. Signature comparison is constant-time.
+- **Login** is rate-limited, and always runs one bcrypt compare so a wrong username and
+  a wrong password take the same time and the response cannot be used to enumerate users.
+- **The Telegram webhook** requires a shared secret, compared in constant time, and the
+  bot ignores every account except `ALLOWED_TELEGRAM_USER_ID`.
+- **Headers**: a strict Content-Security-Policy with a per-response nonce and no
+  `unsafe-inline`, plus HSTS, `nosniff`, `frame-ancestors 'none'` and a referrer policy.
+- **Errors never leak internals.** Only messages meant for a user reach the client;
+  Postgres and runtime errors go to the journal.
+- **Logs are structured JSON with secrets scrubbed**, and security events carry stable
+  event names that the fail2ban filter in `deploy/` matches on.
+- **SQL is parameterised throughout**; table names come from a fixed whitelist.
+
 ## Data & privacy
 
-- Secrets live only in environment variables — never in the repo. `.env` is gitignored.
+- Secrets live only in environment variables — never in the repo. `.env*` is gitignored
+  (except `.env.example`), and git history has been checked: no secret was ever committed.
 - Personal training data (`gym.json`, `gym.md`) is gitignored and never published; the app
   reads from the database, not these files.
-- The bot ignores every Telegram account except `ALLOWED_TELEGRAM_USER_ID`.
 - The dashboard is behind a login; the data API returns nothing without a valid session.
+- Conversation history is pruned after `CHAT_HISTORY_RETENTION_DAYS`. Training data is
+  never pruned.

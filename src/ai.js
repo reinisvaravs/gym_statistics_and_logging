@@ -1,9 +1,10 @@
 import OpenAI from 'openai';
+import { config } from './config.js';
 import * as db from './db.js';
 import { today, timezone } from './time.js';
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const client = new OpenAI({ apiKey: config.openai.apiKey, timeout: 60_000, maxRetries: 2 });
+const MODEL = config.openai.model;
 
 const SYSTEM = `You are the assistant behind a personal gym-tracking Telegram bot. The owner logs
 workouts and asks questions in plain language; you call tools to add, edit, delete, or read entries

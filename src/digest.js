@@ -5,6 +5,8 @@
 import * as db from './db.js';
 import { sendMessage } from './telegram.js';
 import { today, daysBetween, timezone } from './time.js';
+import { config } from './config.js';
+import { log, errorFields } from './logger.js';
 
 const round = (v, n = 0) => Math.round(+v * 10 ** n) / 10 ** n;
 
@@ -136,14 +138,14 @@ export async function buildDigest(now = today(), { kind = 'weekly' } = {}) {
 
 // In a private chat the Telegram user id doubles as the chat id.
 export async function sendDigest({ kind = 'weekly', now = today() } = {}) {
-  const chatId = (process.env.ALLOWED_TELEGRAM_USER_ID || '').trim();
+  const chatId = config.telegram.allowedUserId;
   if (!chatId) {
-    console.log('digest: ALLOWED_TELEGRAM_USER_ID unset — nothing sent.');
+    log.warn('digest skipped: ALLOWED_TELEGRAM_USER_ID is unset');
     return { sent: false, text: null };
   }
   const text = await buildDigest(now, { kind });
   if (!text) {
-    console.log(`digest: nothing to say (${kind}).`);
+    log.debug('digest: nothing to say', { kind });
     return { sent: false, text: null };
   }
   await sendMessage(chatId, text);
@@ -161,13 +163,21 @@ const localHour = (at = new Date()) =>
 // Day of week for a YYYY-MM-DD string, 0 = Sunday (matches DIGEST_WEEKLY_DAY).
 const dayOfWeek = date => new Date(`${date}T00:00:00Z`).getUTCDay();
 
+// Held at module scope so shutdown() can clear it without threading a handle back
+// through server.js. A timer left running keeps the event loop alive and turns a clean
+// systemd restart into a 90-second wait for SIGKILL.
+let digestTimer = null;
+
+export function stopDigestScheduler() {
+  if (digestTimer) { clearInterval(digestTimer); digestTimer = null; }
+}
+
 export function startDigestScheduler() {
-  if (process.env.DIGEST_ENABLED !== 'true') {
-    console.log('digest: disabled (set DIGEST_ENABLED=true to turn it on).');
+  if (!config.digest.enabled) {
+    log.info('digest disabled (set DIGEST_ENABLED=true to turn it on)');
     return { stop() {} };
   }
-  const hour = Number(process.env.DIGEST_HOUR ?? 19);
-  const weeklyDay = Number(process.env.DIGEST_WEEKLY_DAY ?? 0);
+  const { hour, weeklyDay } = config.digest;
 
   // Last local date each kind went out. Lost on restart, which is why we also require the
   // clock to still be inside the send hour — worst case a redeploy resends once.
@@ -190,11 +200,12 @@ export function startDigestScheduler() {
   }
 
   // A transient DB or Telegram blip must never kill the timer.
-  const safeTick = () => tick().catch(e => console.error('digest error:', e.message));
-  const timer = setInterval(safeTick, CHECK_MS);
-  timer.unref?.();                                 // never hold the process open
+  const safeTick = () => tick().catch(err => log.error('digest tick failed', errorFields(err)));
+  stopDigestScheduler();                           // never leave a second timer behind
+  digestTimer = setInterval(safeTick, CHECK_MS);
+  digestTimer.unref?.();                           // never hold the process open
   safeTick();
 
-  console.log(`digest: on — daily ${hour}:00 ${timezone}, weekly on day ${weeklyDay}.`);
-  return { stop() { clearInterval(timer); } };
+  log.info('digest enabled', { hour, weeklyDay, timezone });
+  return { stop: stopDigestScheduler };
 }

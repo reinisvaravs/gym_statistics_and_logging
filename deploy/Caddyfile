@@ -1,0 +1,62 @@
+# Caddy - the only process on this box that faces the internet.
+#
+# Install: /etc/caddy/Caddyfile   then  sudo systemctl reload caddy
+#
+# Caddy obtains and renews the certificate by itself over ACME; there is no certbot and
+# no renewal cron to forget. Ports 80 and 443 must be open in ufw, and the DNS A record
+# must already point here - ACME validates by being reached on port 80.
+
+{
+	# Where Let's Encrypt sends expiry warnings. Replace with your address.
+	email CHANGE_ME@example.com
+
+	# Caddy's own admin API listens on 127.0.0.1:2019 by default. Nothing needs it here,
+	# and an unauthenticated config-rewrite endpoint is not worth leaving running.
+	admin off
+}
+
+# --------------------------------------------------------------- gym tracker
+# Replace with the real subdomain before first start. Caddy will try to issue a
+# certificate for whatever name is written here the moment it loads this file.
+gym.reinis.site {
+	encode zstd gzip
+
+	# The app binds 127.0.0.1 only, so this proxy is the sole route to it.
+	reverse_proxy 127.0.0.1:8731 {
+		# Caddy sets X-Forwarded-For / -Proto / -Host by default. The app is configured
+		# with TRUST_PROXY_HOPS=1 to match exactly this one hop - if you ever put
+		# Cloudflare in front of Caddy, that number becomes 2 or the client IP in the
+		# logs and rate limiter will be Cloudflare's, not the visitor's.
+
+		health_uri /healthz
+		health_interval 30s
+		health_timeout 5s
+	}
+
+	# Defence in depth: the app sets these itself, but if a future route ever misses the
+	# middleware, the edge still covers it. Caddy replaces rather than duplicates.
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/gym-tracker.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		format json
+	}
+}
+
+# Anything hitting the bare IP or an unknown hostname gets closed rather than served.
+# Without this, Caddy answers on the default site and confirms to a scanner that
+# something is here.
+:80, :443 {
+	respond "" 444 {
+		close
+	}
+}

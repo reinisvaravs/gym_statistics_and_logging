@@ -1,7 +1,9 @@
 // All "what day is it" questions go through here. Node's toISOString() is UTC, which
 // puts a late-evening workout on the next day for anyone east of Greenwich.
 
-const TZ = process.env.TIMEZONE || 'Europe/Riga';
+import { config } from './config.js';
+
+const TZ = config.timezone;
 
 // Local calendar date as YYYY-MM-DD. `at` defaults to now.
 export function today(at = new Date()) {

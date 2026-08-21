@@ -1,0 +1,14 @@
+# Install: /etc/systemd/system/gym-tracker-backup.timer
+# Enable:  sudo systemctl enable --now gym-tracker-backup.timer
+[Unit]
+Description=Run the gym tracker Postgres backup nightly
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+# Spread the load if several projects on this box ever back up at the same hour.
+RandomizedDelaySec=15m
+# If the box was off at 03:30, run on next boot rather than skipping the night.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

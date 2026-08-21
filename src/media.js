@@ -1,12 +1,13 @@
 // Photo and voice input: download from Telegram, then let OpenAI turn the file into
 // plain text that can go through the normal tool-calling path in ai.js.
 import OpenAI, { toFile } from 'openai';
+import { config } from './config.js';
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const VISION_MODEL     = process.env.OPENAI_VISION_MODEL || 'gpt-4o-mini';
-const TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || 'whisper-1';
+const client = new OpenAI({ apiKey: config.openai.apiKey, timeout: 60_000, maxRetries: 2 });
+const VISION_MODEL     = config.openai.visionModel;
+const TRANSCRIBE_MODEL = config.openai.transcribeModel;
 
-const TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+const TOKEN = config.telegram.botToken;
 export const MAX_FILE_BYTES = 20 * 1024 * 1024;   // Telegram's own bot-API download limit
 
 const EXTRACT_PROMPT = `This is a photo of a bike computer, gym machine display, smartwatch or
@@ -18,7 +19,8 @@ nothing else. If the image shows no workout data, reply exactly: NO_DATA`;
 // Resolve a Telegram file_id to its bytes. Throws with a readable message.
 export async function downloadTelegramFile(fileId) {
   const metaRes = await fetch(`https://api.telegram.org/bot${TOKEN}/getFile`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ file_id: fileId }),
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ file_id: fileId }), signal: AbortSignal.timeout(20_000),
   });
   const meta = await metaRes.json();
   if (!meta.ok) throw new Error(`could not fetch the file (${meta.description})`);
@@ -26,7 +28,8 @@ export async function downloadTelegramFile(fileId) {
   const { file_path: filePath, file_size: fileSize } = meta.result;
   if (fileSize && fileSize > MAX_FILE_BYTES) throw new Error('that file is too big (max 20MB)');
 
-  const res = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${filePath}`);
+  const res = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${filePath}`,
+    { signal: AbortSignal.timeout(60_000) });
   if (!res.ok) throw new Error(`download failed (HTTP ${res.status})`);
 
   const buffer = Buffer.from(await res.arrayBuffer());

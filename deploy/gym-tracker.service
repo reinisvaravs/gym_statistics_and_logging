@@ -1,0 +1,102 @@
+# systemd unit for the gym tracker.
+#
+# Install: /etc/systemd/system/gym-tracker.service
+#
+# The sandboxing below is the reason this box can host many side projects without one
+# of them being able to reach another. Every directive is deliberate; the comments say
+# what breaks if you remove it.
+
+[Unit]
+Description=Gym tracker (Telegram bot + private dashboard)
+Documentation=file:/opt/gym-tracker/DEPLOYMENT.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+
+# A dedicated service account that owns nothing else. Running as `deploy` would give the
+# app the same reach as the human administrator, including every other project's files.
+User=gym-tracker
+Group=gym-tracker
+
+WorkingDirectory=/opt/gym-tracker
+ExecStart=/usr/bin/node src/server.js
+
+# Secrets live here, 0600 and owned by root:gym-tracker. systemd reads the file as root
+# before dropping privileges, so the service account never needs read access to it.
+# Note: EnvironmentFile does no shell expansion, which matters because a bcrypt hash
+# contains `$` characters that a shell would try to interpret.
+EnvironmentFile=/etc/gym-tracker/gym-tracker.env
+
+Restart=always
+RestartSec=5s
+# Give up if it crashes 5 times in 60s rather than hammering Postgres in a restart loop.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# The app closes its listener and drains the pool on SIGTERM; 20s is generous for that.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gym-tracker
+
+# ---------------------------------------------------------------- sandboxing
+
+NoNewPrivileges=true
+
+# Whole filesystem read-only, /home /root /run/user inaccessible. The app reads its own
+# code and writes nothing to disk - all state is in Postgres - so it needs no
+# ReadWritePaths at all. If you ever add file uploads, add an explicit one; do not
+# weaken ProtectSystem.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RemoveIPC=true
+
+# Outbound HTTPS to Telegram and OpenAI, plus TCP to Postgres. AF_UNIX is included
+# because Node uses a socketpair internally for DNS; without it name resolution fails
+# in a way that looks like a network outage.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+
+# IMPORTANT: do NOT add MemoryDenyWriteExecute=true here.
+# V8 compiles JavaScript to machine code at runtime and needs write+execute pages.
+# Setting it makes node abort at startup. It is the one hardening directive from the
+# standard checklist that is actively incompatible with a Node service.
+
+# ------------------------------------------------------------- resource limits
+# 3.7 GB of RAM is shared with every other side project. A cap means a leak here gets
+# this service OOM-killed and restarted, instead of the kernel picking a victim at
+# random and taking down something unrelated at 3 a.m.
+MemoryMax=400M
+MemoryHigh=300M
+TasksMax=128
+LimitNOFILE=4096
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+# fail2ban jail for the gym tracker.
+# Install: /etc/fail2ban/jail.d/gym-tracker.local
+#
+# The app logs a stable `security.login_failed` event with the client IP on every failed
+# sign-in. The in-process rate limiter already returns 429 after 8 attempts per 15
+# minutes, but that only slows one connection down - this bans the address at the
+# firewall, which is what actually stops a distributed attempt from grinding away.
+
+[gym-tracker-auth]
+enabled  = true
+backend  = systemd
+# Read only this service's journal, not the whole system log.
+journalmatch = _SYSTEMD_UNIT=gym-tracker.service
+filter   = gym-tracker-auth
+port     = http,https
+maxretry = 10
+findtime = 10m
+bantime  = 1h
